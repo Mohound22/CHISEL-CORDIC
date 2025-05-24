@@ -1,0 +1,244 @@
+error id: file://<WORKSPACE>/src/main/scala/CORDIC/debugChiselTrig.scala:
+file://<WORKSPACE>/src/main/scala/CORDIC/debugChiselTrig.scala
+empty definition using pc, found symbol in pc: 
+empty definition using semanticdb
+empty definition using fallback
+non-local guesses:
+
+offset: 116
+uri: file://<WORKSPACE>/src/main/scala/CORDIC/debugChiselTrig.scala
+text:
+```scala
+package CORDIC
+
+import chisel3._
+import chisel3.util._ // For Enum, log2Ceil, VecInit
+
+// Companion object to hold p@@re-computed values and fixed-point helpers.
+// These are used during Chisel generation, not synthesized into hardware directly.
+object CordicSimplifiedConstants {
+  val CORDIC_K_DBL: Double = 0.6072529350088813 // Gain of CORDIC rotation/vectoring
+
+  /**
+   * Converts a Double to a BigInt representing a fixed-point number.
+   * @param x The Double value to convert.
+   * @param fractionalBits The number of fractional bits in the fixed-point representation.
+   * @param width The total bit width of the SInt.
+   * @return BigInt representation of the fixed-point number.
+   */
+  def doubleToFixed(x: Double, fractionalBits: Int, width: Int): BigInt = {
+    val scaled = x * (1L << fractionalBits)
+    val rounded = Math.round(scaled)
+    // Basic saturation to fit within the SInt width
+    val maxVal = (1L << (width - 1)) - 1
+    val minVal = -(1L << (width - 1))
+    if (rounded > maxVal) {
+        // println(s"WARN: Fixed point overflow for $x (scaled $scaled, rounded $rounded > $maxVal). Clamping.")
+        maxVal
+    } else if (rounded < minVal) {
+        // println(s"WARN: Fixed point underflow for $x (scaled $scaled, rounded $rounded < $minVal). Clamping.")
+        minVal
+    } else {
+        rounded
+    }
+  }
+
+  /**
+   * Generates the arctan lookup table (ROM content).
+   * @param fractionalBits Number of fractional bits for angle representation.
+   * @param width Total bit width for angle values.
+   * @param numEntries Number of atan(2^-i) entries to generate.
+   * @return A sequence of SInt literals for VecInit.
+   */
+  def getAtanLUT(fractionalBits: Int, width: Int, numEntries: Int): Seq[SInt] = {
+    (0 until numEntries).map { i =>
+      val angle_rad = math.atan(math.pow(2.0, -i))
+      doubleToFixed(angle_rad, fractionalBits, width).S(width.W)
+    }
+  }
+}
+
+class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int = 3) extends Module {
+  // Parameter Validations
+  require(width > 0, "Width must be positive")
+  require(cycleCount > 0, "Cycle count must be positive")
+  require(integerBits >= 1, "Integer bits must be at least 1 (for sign or small numbers)") // Allowing for values like 0.x or 1.x
+  val fractionalBits: Int = width - 1 - integerBits // 1 bit for sign
+  require(fractionalBits > 0, s"Fractional bits must be positive. Check width ($width) vs integerBits ($integerBits). FractionalBits = $fractionalBits")
+
+  val io = IO(new Bundle {
+    // Control
+    val start = Input(Bool())
+    val doArctan = Input(Bool()) // true for ArcTan (vectoring), false for Sin/Cos (rotation)
+
+    // Data Inputs
+    val targetTheta = Input(SInt(width.W)) // For Sin/Cos mode: target angle in radians (fixed-point)
+    val inputX = Input(SInt(width.W))      // For ArcTan mode: X coordinate (fixed-point)
+    val inputY = Input(SInt(width.W))      // For ArcTan mode: Y coordinate (fixed-point)
+
+    // Data Outputs
+    val done = Output(Bool())
+    val cosOut = Output(SInt(width.W))    // Result for Sin/Cos (X' * K or just X'), or 0 for Arctan
+    val sinOut = Output(SInt(width.W))    // Result for Sin/Cos (Y' * K or just Y'), or 0 for Arctan
+    val arctanOut = Output(SInt(width.W)) // Result for ArcTan (accumulated angle Z'), or residual angle for Sin/Cos
+    
+    // Debug Outputs
+    val debug_state = Output(UInt(2.W))         // Current state (idle, busy, done)
+    val debug_x_reg = Output(SInt(width.W))     // Current x register value
+    val debug_y_reg = Output(SInt(width.W))     // Current y register value
+    val debug_z_reg = Output(SInt(width.W))     // Current z register value
+    val debug_iter_count = Output(UInt(log2Ceil(cycleCount + 1).W)) // Current iteration count
+    val debug_direction = Output(SInt(2.W))     // Current rotation direction
+    val debug_delta_theta = Output(SInt(width.W)) // Current delta theta from LUT
+    val debug_opIsArctan = Output(Bool())       // Current operation mode
+  })
+
+  // --- Fixed-point constants for CORDIC calculations ---
+  val K_fixed = CordicSimplifiedConstants.doubleToFixed(CordicSimplifiedConstants.CORDIC_K_DBL, fractionalBits, width).S(width.W)
+  // Initial X for Sin/Cos mode is 1.0 (scaled).
+  // The Scala model applied K later. If pre-scaling by 1/K, this would be CordicSimplifiedConstants.doubleToFixed(1.0 / CordicSimplifiedConstants.CORDIC_K_DBL,...)
+  val X_INIT_SINCOS_fixed = CordicSimplifiedConstants.doubleToFixed(1.0 , fractionalBits, width).S(width.W)
+  val Y_INIT_SINCOS_fixed = 0.S(width.W)
+
+  // Arctan lookup table (ROM). Contents generated by getAtanLUT.
+  val atanLUT = VecInit(CordicSimplifiedConstants.getAtanLUT(fractionalBits, width, cycleCount))
+
+  // --- State Machine Definition ---
+  object s extends ChiselEnum {
+    val idle, busy, done = Value
+  }
+  val state = RegInit(s.idle)
+
+  // --- Registers for CORDIC iterative values ---
+  val x_reg = Reg(SInt(width.W))
+  val y_reg = Reg(SInt(width.W))
+  val z_reg = Reg(SInt(width.W)) // Holds angle for rotation mode, accumulates angle for vectoring
+  // iter_count goes from 0 to cycleCount-1 for iterations, then to cycleCount to signal completion
+  val iter_count = Reg(UInt(log2Ceil(cycleCount + 1).W))
+  val opIsArctan = Reg(Bool()) // Store operation mode during processing
+
+  // --- Default output values ---
+  io.done := false.B
+  io.cosOut := 0.S       // Default to 0 or hold previous value. Defaulting to 0.
+  io.sinOut := 0.S
+  io.arctanOut := 0.S
+  
+  // Connect debug outputs
+  io.debug_state := state.asUInt
+  io.debug_x_reg := x_reg
+  io.debug_y_reg := y_reg
+  io.debug_z_reg := z_reg
+  io.debug_iter_count := iter_count
+  io.debug_opIsArctan := opIsArctan
+
+  // --- State Machine Logic ---
+  switch(state) {
+    is(s.idle) {
+      printf("State: Idle\n")
+      when(io.start) {
+        opIsArctan := io.doArctan
+        
+        when(io.doArctan) { // ArcTan (Vectoring mode)
+          // Scala model: assert(inputX >= 0). Assuming valid inputs.
+          x_reg := io.inputX
+          y_reg := io.inputY
+          z_reg := 0.S(width.W) // Accumulator for angle
+        }.otherwise { // Sin/Cos (Rotation mode)
+          // Scala model: assert range for targetTheta. Assuming valid inputs.
+          x_reg := X_INIT_SINCOS_fixed // Start with vector (1,0) effectively
+          y_reg := Y_INIT_SINCOS_fixed
+          z_reg := io.targetTheta      // Angle to reduce to zero
+        }
+        iter_count := 0.U
+        state := s.busy
+      }
+    }
+
+    is(s.busy) {
+      // Perform iterations as long as iter_count < cycleCount
+      when(iter_count < cycleCount.U) {
+        printf(p"$iter_count")
+        val current_i = iter_count // Current iteration index, used for shifts and LUT access
+
+        val y_shifted = y_reg >> current_i
+        val x_shifted = x_reg >> current_i
+        
+        val delta_theta = atanLUT(current_i)
+        val direction = Wire(SInt(2.W))      // Direction of rotation/vectoring (+1 or -1)
+
+        // Connect debug outputs that change during iteration
+        io.debug_delta_theta := delta_theta
+        
+        when(opIsArctan) { // Vectoring mode (calculating ArcTan)
+          // Determine direction for vectoring mode
+          // Scala: if (yPrime < 0) direction = 1 else direction = -1
+          // To make y_reg approach 0:
+          // If y_reg > 0, rotate negatively (standard CORDIC d_i = +1)
+          // If y_reg < 0, rotate positively (standard CORDIC d_i = -1)
+          val d_vec = Mux(y_reg >= 0.S, 1.S, -1.S)
+          direction := d_vec // Assign to the common 'direction' wire
+
+          x_reg := x_reg + (direction * y_shifted) // x_new = x_old + d*y_shifted
+          y_reg := y_reg - (direction * x_shifted) // y_new = y_old - d*x_shifted
+          z_reg := z_reg + (direction * delta_theta) // z_new = z_old + d*angle
+
+        }.otherwise { // Rotation mode (calculating Sin/Cos)
+          // Determine direction for rotation mode
+          // Standard CORDIC: d_i = sign(z_i). If z_i > 0, d_i = +1 (rotate negative).
+          val d_rot = Mux(z_reg >= 0.S, 1.S, -1.S)
+          direction := d_rot // Assign to the common 'direction' wire
+          
+          x_reg := x_reg - (direction * y_shifted) // x_new = x_old - d*y_shifted
+          y_reg := y_reg + (direction * x_shifted) // y_new = y_old + d*x_shifted
+          z_reg := z_reg - (direction * delta_theta) // z_new = z_old - d*angle
+        }
+        
+        // Connect direction debug output
+        io.debug_direction := direction
+        
+        iter_count := iter_count + 1.U
+      }.otherwise { // All iterations (0 to cycleCount-1) are complete
+        state := s.done
+      }
+    }
+
+    is(s.done) {
+      printf("State: Done\n")
+      printf(p"Final results: cosOut = ${io.cosOut}, sinOut = ${io.sinOut}, arctanOut = ${io.arctanOut}\n")
+
+      io.done := true.B
+      // Values in x_reg, y_reg, z_reg are the final results from iterations.
+      when(opIsArctan) {
+        // Scala model returned (0.0, 0.0, totalTheta)
+        io.cosOut    := 0.S // x_reg would be gain-scaled magnitude if needed
+        io.sinOut    := 0.S // y_reg should be close to 0 if needed
+        io.arctanOut := z_reg // This is the accumulated angle
+      }.otherwise { // Sin/Cos mode
+        // x_reg is cos(theta_initial) * Product(cos(atan(2^-i))) = cos(theta_initial) / K_cordic
+        // y_reg is sin(theta_initial) * Product(cos(atan(2^-i))) = sin(theta_initial) / K_cordic
+        // Need to apply gain correction K_cordic.
+        val cos_uncorrected = x_reg
+        val sin_uncorrected = y_reg
+
+        // Fixed point multiplication: (A * B) requires a right shift by fractionalBits
+        // to realign the decimal point. The intermediate product can be up to 2*width bits.
+        val cos_full_prod = cos_uncorrected.asSInt * K_fixed.asSInt
+        val sin_full_prod = sin_uncorrected.asSInt * K_fixed.asSInt
+        
+        // Shift right to restore fractional point and truncate to original width.
+        io.cosOut := (cos_full_prod >> fractionalBits.U).asSInt
+        io.sinOut := (sin_full_prod >> fractionalBits.U).asSInt
+        io.arctanOut := z_reg // This is the residual angle, should be close to zero
+      }
+      // After outputting for one cycle, return to Idle.
+      // If io.start is held high, it might immediately start a new calculation.
+      state := s.idle
+    }
+  }
+}
+```
+
+
+#### Short summary: 
+
+empty definition using pc, found symbol in pc: 
