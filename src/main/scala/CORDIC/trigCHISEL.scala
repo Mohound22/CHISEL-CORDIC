@@ -21,9 +21,16 @@ object CordicSimplifiedConstants {
       doubleToFixed(angle_rad, fractionalBits, width).S(width.W)
     }
   }
+
+  // CORDIC operation modes
+  object Mode extends ChiselEnum {
+    val SinCos, ArctanMagnitude = Value
+  }
 }
 
 class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int = 3) extends Module {
+  import CordicSimplifiedConstants.Mode
+  
   // Parameter Validations
   require(width > 0, "Width must be positive")
   require(cycleCount > 0, "Cycle count must be positive")
@@ -34,7 +41,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
   val io = IO(new Bundle {
     // Control
     val start = Input(Bool())
-    val doArctan = Input(Bool()) // true for ArcTan (vectoring), false for Sin/Cos (rotation)
+    val mode = Input(Mode())  // Changed from doArctan to mode enumeration
 
     // Data Inputs
     val targetTheta = Input(SInt(width.W)) 
@@ -45,7 +52,8 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
     val done = Output(Bool())
     val cosOut = Output(SInt(width.W))   
     val sinOut = Output(SInt(width.W))    
-    val arctanOut = Output(SInt(width.W)) 
+    val arctanOut = Output(SInt(width.W))
+    val magnitudeOut = Output(SInt(width.W)) // Added magnitude output
   })
 
   // --- Fixed-point constants for CORDIC calculations ---
@@ -69,29 +77,27 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
   val z_reg = Reg(SInt(width.W)) 
   // iter_count goes from 0 to cycleCount-1 for iterations, then to cycleCount to signal completion
   val iter_count = Reg(UInt(log2Ceil(cycleCount + 1).W))
-  val opIsArctan = Reg(Bool()) // Store operation mode during processing
+  val currentMode = Reg(Mode())  // Store operation mode during processing
 
   // --- Default output values ---
   io.done := false.B
   io.cosOut := 0.S    
   io.sinOut := 0.S
   io.arctanOut := 0.S
+  io.magnitudeOut := 0.S
 
   // --- State Machine Logic ---
   switch(state) {
     is(s.idle) {
                 //printf("State: Idle\n")
       when(io.start) {
-
-        opIsArctan := io.doArctan
+        currentMode := io.mode
         
-        when(io.doArctan) { // ArcTan (Vectoring mode)
-
+        when(io.mode === Mode.ArctanMagnitude) {
           x_reg := io.inputX
           y_reg := io.inputY
           z_reg := 0.S(width.W) 
         }.otherwise { // Sin/Cos (Rotation mode)
-
           x_reg := X_INIT_SINCOS_fixed // Start with vector (1,0) effectively
           y_reg := Y_INIT_SINCOS_fixed
           z_reg := io.targetTheta     
@@ -113,8 +119,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
         val delta_theta = atanLUT(current_i)
         val direction = Wire(SInt(2.W))      // Direction of rotation/vectoring (+1 or -1)
 
-        when(opIsArctan) { // Vectoring mode (calculating ArcTan)
-
+        when(currentMode === Mode.ArctanMagnitude) { // Vectoring mode (calculating ArcTan)
           val d_vec = Mux(y_reg >= 0.S, 1.S, -1.S)
           direction := d_vec // Assign to the common 'direction' wire
 
@@ -142,12 +147,15 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
 
       io.done := true.B
 
-      when(opIsArctan) {
-        io.cosOut    := 0.S 
-        io.sinOut    := 0.S 
-        io.arctanOut := z_reg // This is the accumulated angle
-      }.otherwise { // Sin/Cos mode
-
+      when(currentMode === Mode.ArctanMagnitude) {
+        val magnitude_uncorrected = x_reg
+        val magnitude_full_prod = magnitude_uncorrected * K_fixed
+        
+        io.magnitudeOut := (magnitude_full_prod >> fractionalBits.U).asSInt
+        io.arctanOut := z_reg
+        io.cosOut := 0.S
+        io.sinOut := 0.S
+      }.otherwise {
         val cos_uncorrected = x_reg
         val sin_uncorrected = y_reg
 
@@ -157,8 +165,8 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
         io.cosOut := (cos_full_prod >> fractionalBits.U).asSInt
         io.sinOut := (sin_full_prod >> fractionalBits.U).asSInt
         io.arctanOut := z_reg
+        io.magnitudeOut := 0.S
       }
-      // After outputting for one cycle, return to Idle.
       state := s.idle
     }
   }

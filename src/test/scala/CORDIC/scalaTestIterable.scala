@@ -3,6 +3,7 @@ package CORDIC
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import CordicModelConstants._
+import CordicModelConstants.Mode._
 import scala.math.{Pi, sqrt}
 
 class CordicModelTest extends AnyFlatSpec with Matchers {
@@ -14,7 +15,7 @@ class CordicModelTest extends AnyFlatSpec with Matchers {
   val precision = 0.001 // Fixed-point precision tolerance
   
   // Instantiate model with test parameters
-  val model = new CordicModel(
+  val model = new TrigCordicModel(
     width = width,
     cycleCount = testCycles,
     integerBits = integerBits
@@ -39,59 +40,61 @@ class CordicModelTest extends AnyFlatSpec with Matchers {
 
   // Helper function to run test case
   def runTest(angle: Double = 0.0, x: Double = 0.0, y: Double = 0.0, 
-              modeArctan: Boolean = false): Unit = {
+              mode: Mode = SinCos): Unit = {
     model.reset()
-    if (modeArctan) {
-      model.setInputs(true, true, 0, doubleToFixed(x), doubleToFixed(y))
-    } else {
-      model.setInputs(true, false, doubleToFixed(angle), 0, 0)
-    }
+    model.setInputs(
+      start = true,
+      modeIn = mode,
+      theta = if (mode == SinCos) doubleToFixed(angle) else BigInt(0),
+      xIn = if (mode == ArctanMagnitude) doubleToFixed(x) else BigInt(0),
+      yIn = if (mode == ArctanMagnitude) doubleToFixed(y) else BigInt(0)
+    )
     while(!model.done) model.step()
   }
 
   // Basic functionality tests
   it should "calculate arctangent for positive coordinates" in {
-    runTest(x = 1.0, y = 1.0, modeArctan = true)
+    runTest(x = 1.0, y = 1.0, mode = ArctanMagnitude)
     fixedToDouble(model.arctan) should be (Pi/4 +- precision)
   }
 
   it should "calculate sine/cosine with proper scaling" in {
-    runTest(angle = Pi/4)
+    runTest(angle = Pi/4, mode = SinCos)
     fixedToDouble(model.cos) should be (sqrt(2)/2 +- precision)
     fixedToDouble(model.sin) should be (sqrt(2)/2 +- precision)
   }
 
   // Edge cases for vectoring mode (arctan)
   it should "handle zero Y input in vectoring mode" in {
-    runTest(x = 1.0, y = 0.0, modeArctan = true)
+    runTest(x = 1.0, y = 0.0, mode = ArctanMagnitude)
     fixedToDouble(model.arctan) should be (0.0 +- precision)
   }
 
   it should "handle zero X input in vectoring mode" in {
-    runTest(x = 0.0, y = 1.0, modeArctan = true)
+    runTest(x = 0.0, y = 1.0, mode = ArctanMagnitude)
     fixedToDouble(model.arctan) should be (Pi/2 +- precision)
   }
 
   it should "handle negative Y coordinate in vectoring mode" in {
-    runTest(x = 1.0, y = -1.0, modeArctan = true)
+    runTest(x = 1.0, y = -1.0, mode = ArctanMagnitude)
     fixedToDouble(model.arctan) should be (-Pi/4 +- precision)
   }
 
   // Edge cases for rotation mode (sin/cos)
   it should "calculate sine/cosine for zero angle" in {
-    runTest(angle = 0.0)
+    runTest(angle = 0.0, mode = SinCos)
     fixedToDouble(model.cos) should be (1.0 +- precision)
     fixedToDouble(model.sin) should be (0.0 +- precision)
   }
 
   it should "calculate sine/cosine for Pi/2 angle" in {
-    runTest(angle = Pi/2)
+    runTest(angle = Pi/2, mode = SinCos)
     fixedToDouble(model.cos) should be (0.0 +- precision)
     fixedToDouble(model.sin) should be (1.0 +- precision)
   }
 
   it should "calculate sine/cosine for negative angle" in {
-    runTest(angle = -Pi/4)
+    runTest(angle = -Pi/4, mode = SinCos)
     fixedToDouble(model.cos) should be (sqrt(2)/2 +- precision)
     fixedToDouble(model.sin) should be (-sqrt(2)/2 +- precision)
   }
@@ -99,14 +102,14 @@ class CordicModelTest extends AnyFlatSpec with Matchers {
   // Input boundary tests
   it should "handle maximum input values" in {
     val maxVal = (1 << (width - 1)) - 1
-    runTest(angle = fixedToDouble(maxVal))
+    runTest(angle = fixedToDouble(maxVal), mode = SinCos)
     // Just verify the model completes without error
     model.done should be (true)
   }
 
   it should "handle minimum input values" in {
     val minVal = -(1 << (width - 1))
-    runTest(angle = fixedToDouble(minVal))
+    runTest(angle = fixedToDouble(minVal), mode = SinCos)
     // Just verify the model completes without error
     model.done should be (true)
   }
@@ -114,12 +117,12 @@ class CordicModelTest extends AnyFlatSpec with Matchers {
   // Multiple operations test
   it should "handle consecutive operations correctly" in {
     // First operation - sin/cos
-    runTest(angle = Pi/3)
+    runTest(angle = Pi/3, mode = SinCos)
     fixedToDouble(model.cos) should be (0.5 +- precision)
     fixedToDouble(model.sin) should be (sqrt(3)/2 +- precision)
 
     // Second operation - arctan
-    runTest(x = 1.0, y = sqrt(3), modeArctan = true)
+    runTest(x = 1.0, y = sqrt(3), mode = ArctanMagnitude)
     fixedToDouble(model.arctan) should be (Pi/3 +- precision)
   }
 
@@ -130,5 +133,4 @@ class CordicModelTest extends AnyFlatSpec with Matchers {
     model.step()
     model.done should be (false)
   }
-
 }

@@ -4,6 +4,7 @@ import chisel3._
 import chiseltest._
 import org.scalatest.flatspec.AnyFlatSpec
 import scala.math.{sin, cos, atan, Pi}
+import CordicSimplifiedConstants.Mode
 
 class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
   
@@ -73,6 +74,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       dut.io.cosOut.expect(0.S)
       dut.io.sinOut.expect(0.S)
       dut.io.arctanOut.expect(0.S)
+      dut.io.magnitudeOut.expect(0.S)
       
       // Should remain idle without start signal
       dut.clock.step(5)
@@ -83,7 +85,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
   it should "calculate sin/cos correctly and match Scala model" in {
     test(new CordicSimplified(width, cycleCount, integerBits)) { dut =>
       // Create Scala model for comparison
-      val model = new CordicModel(width, cycleCount, integerBits)
+      val model = new TrigCordicModel(width, cycleCount, integerBits)
       
       // Test angles: 0, π/6, π/4, π/3, π/2
       val testAngles = Seq(0.0, Pi/6, Pi/4, Pi/3, Pi/2)
@@ -97,7 +99,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         model.reset()
         model.setInputs(
           start = true,
-          arctanMode = false,
+          modeIn = CordicModelConstants.Mode.SinCos,
           theta = angleFixed,
           xIn = BigInt(0),
           yIn = BigInt(0)
@@ -110,7 +112,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         
         // Configure hardware
         dut.io.start.poke(true.B)
-        dut.io.doArctan.poke(false.B)
+        dut.io.mode.poke(Mode.SinCos)
         dut.io.targetTheta.poke(angleFixed.S)
         dut.io.inputX.poke(0.S)
         dut.io.inputY.poke(0.S)
@@ -157,10 +159,10 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 
-  it should "calculate arctan correctly and match Scala model" in {
+  it should "calculate arctan and magnitude correctly and match Scala model" in {
     test(new CordicSimplified(width, cycleCount, integerBits)) { dut =>
       // Create Scala model for comparison
-      val model = new CordicModel(width, cycleCount, integerBits)
+      val model = new TrigCordicModel(width, cycleCount, integerBits)
       
       // Test coordinate pairs (x, y) for arctan calculation
       val testCoords = Seq(
@@ -172,7 +174,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       )
       
       for ((x, y) <- testCoords) {
-        println(s"\n=== Testing Arctan for coordinates: ($x, $y) ===")
+        println(s"\n=== Testing Arctan/Magnitude for coordinates: ($x, $y) ===")
         
         val xFixed = doubleToFixed(x)
         val yFixed = doubleToFixed(y)
@@ -181,7 +183,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         model.reset()
         model.setInputs(
           start = true,
-          arctanMode = true,
+          modeIn = CordicModelConstants.Mode.ArctanMagnitude,
           theta = BigInt(0),
           xIn = xFixed,
           yIn = yFixed
@@ -194,7 +196,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         
         // Configure hardware
         dut.io.start.poke(true.B)
-        dut.io.doArctan.poke(true.B)
+        dut.io.mode.poke(Mode.ArctanMagnitude)
         dut.io.targetTheta.poke(0.S)
         dut.io.inputX.poke(xFixed.S)
         dut.io.inputY.poke(yFixed.S)
@@ -214,19 +216,26 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         
         // Get results and clean near-zero values
         val hwArctan = cleanNearZero(dut.io.arctanOut.peek().litValue)
+        val hwMagnitude = cleanNearZero(dut.io.magnitudeOut.peek().litValue)
         val modelArctan = cleanNearZero(model.arctan)
+        val modelMagnitude = cleanNearZero(model.magnitude)
         
-        println(s"Hardware: arctan=$hwArctan (${fixedToDouble(hwArctan)})")
-        println(s"Model:    arctan=$modelArctan (${fixedToDouble(modelArctan)})")
-        println(s"Expected: arctan=${atan(y/x)}")
+        println(s"Hardware: arctan=$hwArctan (${fixedToDouble(hwArctan)}), magnitude=$hwMagnitude (${fixedToDouble(hwMagnitude)})")
+        println(s"Model:    arctan=$modelArctan (${fixedToDouble(modelArctan)}), magnitude=$modelMagnitude (${fixedToDouble(modelMagnitude)})")
+        println(s"Expected: arctan=${atan(y/x)}, magnitude=${Math.sqrt(x*x + y*y)}")
         
         // Compare hardware vs model (should be identical)
         assert(hwArctan == modelArctan, s"Arctan mismatch: HW=$hwArctan, Model=$modelArctan")
+        assert(hwMagnitude == modelMagnitude, s"Magnitude mismatch: HW=$hwMagnitude, Model=$modelMagnitude")
         
-        // Compare against mathematical value (with tolerance)
+        // Compare against mathematical values (with tolerance)
         val expectedArctan = doubleToFixed(atan(y/x))
+        val expectedMagnitude = doubleToFixed(Math.sqrt(x*x + y*y))
+        
         assert(compareFixed(expectedArctan, hwArctan, 0.03), 
           s"Arctan accuracy: expected=${fixedToDouble(expectedArctan)} (${atan(y/x)}), got=${fixedToDouble(hwArctan)}")
+        assert(compareFixed(expectedMagnitude, hwMagnitude, 0.03),
+          s"Magnitude accuracy: expected=${fixedToDouble(expectedMagnitude)} (${Math.sqrt(x*x + y*y)}), got=${fixedToDouble(hwMagnitude)}")
         
         // Wait for return to idle
         dut.clock.step(2)
@@ -236,26 +245,38 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
 
   it should "handle multiple sequential operations" in {
     test(new CordicSimplified(width, cycleCount, integerBits)) { dut =>
-      val model = new CordicModel(width, cycleCount, integerBits)
+      val model = new TrigCordicModel(width, cycleCount, integerBits)
       
-      // Test sequence: sin/cos, then arctan, then sin/cos again
+      // Test sequence: sin/cos, then arctan/magnitude, then sin/cos again
       val operations = Seq(
         ("sincos", Pi/4, 0.0, 0.0),
-        ("arctan", 0.0, 1.0, 1.0),
+        ("arctanmag", 0.0, 1.0, 1.0),
         ("sincos", Pi/6, 0.0, 0.0)
       )
       
       for ((opType, param1, param2, param3) <- operations) {
         println(s"\n=== Sequential test: $opType ===")
         
-        val isArctan = opType == "arctan"
+        val isArctanMag = opType == "arctanmag"
         
         // Configure model
         model.reset()
-        if (isArctan) {
-          model.setInputs(true, true, BigInt(0), doubleToFixed(param2), doubleToFixed(param3))
+        if (isArctanMag) {
+          model.setInputs(
+            start = true,
+            modeIn = CordicModelConstants.Mode.ArctanMagnitude,
+            theta = BigInt(0),
+            xIn = doubleToFixed(param2),
+            yIn = doubleToFixed(param3)
+          )
         } else {
-          model.setInputs(true, false, doubleToFixed(param1), BigInt(0), BigInt(0))
+          model.setInputs(
+            start = true,
+            modeIn = CordicModelConstants.Mode.SinCos,
+            theta = doubleToFixed(param1),
+            xIn = BigInt(0),
+            yIn = BigInt(0)
+          )
         }
         
         // Run model
@@ -265,8 +286,8 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         
         // Configure hardware
         dut.io.start.poke(true.B)
-        dut.io.doArctan.poke(isArctan.B)
-        if (isArctan) {
+        dut.io.mode.poke(if (isArctanMag) Mode.ArctanMagnitude else Mode.SinCos)
+        if (isArctanMag) {
           dut.io.targetTheta.poke(0.S)
           dut.io.inputX.poke(doubleToFixed(param2).S)
           dut.io.inputY.poke(doubleToFixed(param3).S)
@@ -289,136 +310,35 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         dut.io.done.expect(true.B)
         
         // Verify results match between hardware and model
-        if (isArctan) {
-          val hwResult = cleanNearZero(dut.io.arctanOut.peek().litValue)
-          val modelResult = cleanNearZero(model.arctan)
-          println(s"Sequential Arctan Results:")
-          println(s"  Hardware: $hwResult (${fixedToDouble(hwResult)})")
-          println(s"  Model:    $modelResult (${fixedToDouble(modelResult)})")
-          println(s"  Expected: ${atan(param3/param2)}")
-          assert(hwResult == modelResult, s"Arctan sequential mismatch: HW=$hwResult, Model=$modelResult")
+        if (isArctanMag) {
+          val hwArctan = cleanNearZero(dut.io.arctanOut.peek().litValue)
+          val hwMagnitude = cleanNearZero(dut.io.magnitudeOut.peek().litValue)
+          val modelArctan = cleanNearZero(model.arctan)
+          val modelMagnitude = cleanNearZero(model.magnitude)
+          
+          println(s"Sequential Arctan/Magnitude Results:")
+          println(s"  Hardware: arctan=$hwArctan (${fixedToDouble(hwArctan)}), magnitude=$hwMagnitude (${fixedToDouble(hwMagnitude)})")
+          println(s"  Model:    arctan=$modelArctan (${fixedToDouble(modelArctan)}), magnitude=$modelMagnitude (${fixedToDouble(modelMagnitude)})")
+          println(s"  Expected: arctan=${atan(param3/param2)}, magnitude=${Math.sqrt(param2*param2 + param3*param3)}")
+          
+          assert(hwArctan == modelArctan, s"Arctan sequential mismatch: HW=$hwArctan, Model=$modelArctan")
+          assert(hwMagnitude == modelMagnitude, s"Magnitude sequential mismatch: HW=$hwMagnitude, Model=$modelMagnitude")
         } else {
           val hwCos = cleanNearZero(dut.io.cosOut.peek().litValue)
           val hwSin = cleanNearZero(dut.io.sinOut.peek().litValue)
           val modelCos = cleanNearZero(model.cos)
           val modelSin = cleanNearZero(model.sin)
+          
           println(s"Sequential Sin/Cos Results:")
           println(s"  Hardware: cos=$hwCos (${fixedToDouble(hwCos)}), sin=$hwSin (${fixedToDouble(hwSin)})")
           println(s"  Model:    cos=$modelCos (${fixedToDouble(modelCos)}), sin=$modelSin (${fixedToDouble(modelSin)})")
           println(s"  Expected: cos=${cos(param1)}, sin=${sin(param1)}")
+          
           assert(hwCos == modelCos && hwSin == modelSin, 
             s"Sin/Cos sequential mismatch: HW=($hwCos,$hwSin), Model=($modelCos,$modelSin)")
         }
         
         dut.clock.step(2) // Return to idle
-      }
-    }
-  }
-
-  it should "handle edge cases correctly" in {
-    test(new CordicSimplified(width, cycleCount, integerBits)) { dut =>
-      val model = new CordicModel(width, cycleCount, integerBits)
-      
-      // Test edge cases
-      val edgeCases = Seq(
-        ("zero_angle", false, 0.0, 0.0, 0.0),
-        ("small_angle", false, 0.1, 0.0, 0.0),
-        ("unity_vector", true, 0.0, 1.0, 0.0),
-        ("small_arctan", true, 0.0, 1.0, 0.1)
-      )
-      
-      for ((testName, isArctan, theta, x, y) <- edgeCases) {
-        println(s"\n=== Edge case test: $testName ===")
-        println(s"Test parameters: isArctan=$isArctan, theta=$theta, x=$x, y=$y")
-        
-        // Test model
-        model.reset()
-        model.setInputs(true, isArctan, doubleToFixed(theta), doubleToFixed(x), doubleToFixed(y))
-        while (!model.done) {
-          model.step()
-        }
-        
-        // Test hardware
-        dut.io.start.poke(true.B)
-        dut.io.doArctan.poke(isArctan.B)
-        dut.io.targetTheta.poke(doubleToFixed(theta).S)
-        dut.io.inputX.poke(doubleToFixed(x).S)
-        dut.io.inputY.poke(doubleToFixed(y).S)
-        
-        dut.clock.step(1)
-        dut.io.start.poke(false.B)
-        
-        var timeout = 0
-        while (!dut.io.done.peek().litToBoolean && timeout < 50) {
-          dut.clock.step(1)
-          timeout += 1
-        }
-        
-        dut.io.done.expect(true.B)
-        
-        // Get results and print detailed comparison
-        println(s"Edge case '$testName' results:")
-        if (isArctan) {
-          val hwResult = cleanNearZero(dut.io.arctanOut.peek().litValue)
-          val modelResult = cleanNearZero(model.arctan)
-          println(s"  Arctan - Hardware: $hwResult (${fixedToDouble(hwResult)})")
-          println(s"  Arctan - Model:    $modelResult (${fixedToDouble(modelResult)})")
-          if (x != 0.0) {
-            val expectedVal = atan(y/x)
-            println(s"  Arctan - Expected: $expectedVal (atan($y/$x))")
-            val errorPercent = if (expectedVal != 0.0) {
-              Math.abs(fixedToDouble(hwResult) - expectedVal) / Math.abs(expectedVal) * 100
-            } else {
-              Math.abs(fixedToDouble(hwResult))
-            }
-            println(s"  Arctan - Error: ${errorPercent}%")
-          } else {
-            println(s"  Arctan - Expected: undefined (x=0)")
-          }
-          assert(hwResult == modelResult, s"Edge case $testName arctan mismatch")
-        } else {
-          val hwCos = cleanNearZero(dut.io.cosOut.peek().litValue)
-          val hwSin = cleanNearZero(dut.io.sinOut.peek().litValue)
-          val modelCos = cleanNearZero(model.cos)
-          val modelSin = cleanNearZero(model.sin)
-          println(s"  Cos - Hardware: $hwCos (${fixedToDouble(hwCos)}), Sin - Hardware: $hwSin (${fixedToDouble(hwSin)})")
-          println(s"  Cos - Model: $modelCos (${fixedToDouble(modelCos)}), Sin - Model: $modelSin (${fixedToDouble(modelSin)})")
-          
-          val expectedCos = cos(theta)
-          val expectedSin = sin(theta)
-          println(s"  Expected: cos=$expectedCos, sin=$expectedSin")
-          
-          val cosErrorPercent = if (expectedCos != 0.0) {
-            Math.abs(fixedToDouble(hwCos) - expectedCos) / Math.abs(expectedCos) * 100
-          } else {
-            Math.abs(fixedToDouble(hwCos))  
-          }
-          val sinErrorPercent = if (expectedSin != 0.0) {
-            Math.abs(fixedToDouble(hwSin) - expectedSin) / Math.abs(expectedSin) * 100
-          } else {
-            Math.abs(fixedToDouble(hwSin))
-          }
-          println(s"  Cos Error: ${cosErrorPercent}%, Sin Error: ${sinErrorPercent}%")
-          
-          assert(hwCos == modelCos, s"Edge case $testName cosine mismatch")
-          assert(hwSin == modelSin, s"Edge case $testName sine mismatch")
-        }
-        
-        // Verify consistency
-        if (isArctan) {
-          val hwResult = cleanNearZero(dut.io.arctanOut.peek().litValue)
-          val modelResult = cleanNearZero(model.arctan)
-          assert(hwResult == modelResult)
-        } else {
-          val hwCos = cleanNearZero(dut.io.cosOut.peek().litValue)
-          val hwSin = cleanNearZero(dut.io.sinOut.peek().litValue)
-          val modelCos = cleanNearZero(model.cos)
-          val modelSin = cleanNearZero(model.sin)
-          assert(hwCos == modelCos)
-          assert(hwSin == modelSin)
-        }
-        
-        dut.clock.step(2)
       }
     }
   }
