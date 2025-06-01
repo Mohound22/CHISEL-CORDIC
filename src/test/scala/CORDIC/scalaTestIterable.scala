@@ -133,4 +133,61 @@ class CordicModelTest extends AnyFlatSpec with Matchers {
     model.step()
     model.done should be (false)
   }
+
+  // Add new test cases for magnitude correction
+  it should "produce correct magnitudes with correction enabled" in {
+    val modelWithCorrection = new TrigCordicModel(
+      width = width,
+      cycleCount = testCycles,
+      integerBits = integerBits,
+      magnitudeCorrection = true
+    )
+
+    // Test angles where both sin and cos are non-zero
+    val testAngles = Seq(Pi/4, Pi/6, Pi/3)
+    
+    for (angle <- testAngles) {
+      runTest(angle = angle, mode = SinCos)
+      val cos = fixedToDouble(model.cos)
+      val sin = fixedToDouble(model.sin)
+      
+      // Calculate the actual magnitude of the output vector
+      val magnitude = sqrt(cos*cos + sin*sin)
+      // With correction, magnitude should be very close to 1.0
+      magnitude should be (1.0 +- precision)
+    }
+  }
+
+  it should "produce scaled magnitudes with correction disabled" in {
+    val modelWithoutCorrection = new TrigCordicModel(
+      width = width,
+      cycleCount = testCycles,
+      integerBits = integerBits,
+      magnitudeCorrection = false
+    )
+
+    // Test angles where both sin and cos are non-zero
+    val testAngles = Seq(Pi/4, Pi/6, Pi/3)
+    
+    for (angle <- testAngles) {
+      // Use the uncorrected model
+      modelWithoutCorrection.reset()
+      modelWithoutCorrection.setInputs(
+        start = true,
+        modeIn = SinCos,
+        theta = doubleToFixed(angle),
+        xIn = BigInt(0),
+        yIn = BigInt(0)
+      )
+      while(!modelWithoutCorrection.done) modelWithoutCorrection.step()
+
+      val cos = fixedToDouble(modelWithoutCorrection.cos)
+      val sin = fixedToDouble(modelWithoutCorrection.sin)
+      
+      // Calculate the actual magnitude of the output vector
+      val magnitude = sqrt(cos*cos + sin*sin)
+      // Without correction, magnitude should be close to K (CORDIC gain)
+      magnitude should be (1/K +- precision)
+    }
+  }
 }

@@ -39,13 +39,17 @@ object CordicModelConstants {
   }
 }
 
-class TrigCordicModel(width: Int, cycleCount: Int, integerBits: Int) {
+class TrigCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeCorrection: Boolean = true) {
   import CordicModelConstants._
   import CordicModelConstants.Mode._
 
   private val fractionalBits = width - 1 - integerBits
   private val K = doubleToFixed(CORDIC_K, fractionalBits, width)
-  private val X_INIT = doubleToFixed(1.0, fractionalBits, width)
+  private val X_INIT = if (magnitudeCorrection) {
+    doubleToFixed(CORDIC_K, fractionalBits, width)
+  } else {
+    doubleToFixed(1.0, fractionalBits, width)
+  }
   private val Y_INIT = BigInt(0)
   private val atanLUT = getAtanLUT(fractionalBits, width, cycleCount)
 
@@ -156,13 +160,14 @@ class TrigCordicModel(width: Int, cycleCount: Int, integerBits: Int) {
       case Done =>
         if (mode == ArctanMagnitude) {
           arctanResult = z
-          magnitudeResult = clamp((x * K) >> fractionalBits)
+          if (magnitudeCorrection) {
+            magnitudeResult = clamp((x * K) >> fractionalBits)
+          } else {
+            magnitudeResult = clamp(x)
+          }
         } else {
-          val cosUnscaled = x
-          val sinUnscaled = y
-          
-          cosResult = clamp((x * K) >> fractionalBits)
-          sinResult = clamp((y * K) >> fractionalBits)
+          cosResult = clamp(x)
+          sinResult = clamp(y)
         }
         doneFlag = true
         state = Idle

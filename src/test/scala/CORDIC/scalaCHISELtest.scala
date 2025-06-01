@@ -342,4 +342,112 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       }
     }
   }
+
+  it should "produce correct magnitudes with correction enabled" in {
+    test(new CordicSimplified(width, cycleCount, integerBits, magnitudeCorrection = true)) { dut =>
+      // Create Scala model for comparison
+      val model = new TrigCordicModel(width, cycleCount, integerBits, magnitudeCorrection = true)
+      
+      // Test angles where both sin and cos are non-zero
+      val testAngles = Seq(Pi/4, Pi/6, Pi/3)
+      
+      for (angle <- testAngles) {
+        println(s"\n=== Testing magnitude correction for angle: $angle radians ===")
+        
+        val angleFixed = doubleToFixed(angle)
+        
+        // Configure hardware
+        dut.io.start.poke(true.B)
+        dut.io.mode.poke(Mode.SinCos)
+        dut.io.targetTheta.poke(angleFixed.S)
+        dut.io.inputX.poke(0.S)
+        dut.io.inputY.poke(0.S)
+        
+        dut.clock.step(1)
+        dut.io.start.poke(false.B)
+        
+        // Wait for completion
+        var timeout = 0
+        while (!dut.io.done.peek().litToBoolean && timeout < 50) {
+          dut.clock.step(1)
+          timeout += 1
+        }
+        
+        // Check completion
+        dut.io.done.expect(true.B)
+        
+        // Get results
+        val hwCos = cleanNearZero(dut.io.cosOut.peek().litValue)
+        val hwSin = cleanNearZero(dut.io.sinOut.peek().litValue)
+        
+        // Calculate magnitude of the output vector
+        val hwCosDouble = fixedToDouble(hwCos)
+        val hwSinDouble = fixedToDouble(hwSin)
+        val magnitude = Math.sqrt(hwCosDouble*hwCosDouble + hwSinDouble*hwSinDouble)
+        
+        println(s"Hardware cos=$hwCosDouble, sin=$hwSinDouble")
+        println(s"Calculated magnitude=$magnitude (should be close to 1.0)")
+        
+        // With correction enabled, magnitude should be very close to 1.0
+        assert(Math.abs(magnitude - 1.0) < 0.03, 
+          s"Magnitude with correction should be close to 1.0, got $magnitude")
+        
+        dut.clock.step(2)
+      }
+    }
+  }
+
+  it should "produce scaled magnitudes with correction disabled" in {
+    test(new CordicSimplified(width, cycleCount, integerBits, magnitudeCorrection = false)) { dut =>
+      // Create Scala model for comparison
+      val model = new TrigCordicModel(width, cycleCount, integerBits, magnitudeCorrection = false)
+      
+      // Test angles where both sin and cos are non-zero
+      val testAngles = Seq(Pi/4, Pi/6, Pi/3)
+      
+      for (angle <- testAngles) {
+        println(s"\n=== Testing uncorrected magnitude for angle: $angle radians ===")
+        
+        val angleFixed = doubleToFixed(angle)
+        
+        // Configure hardware
+        dut.io.start.poke(true.B)
+        dut.io.mode.poke(Mode.SinCos)
+        dut.io.targetTheta.poke(angleFixed.S)
+        dut.io.inputX.poke(0.S)
+        dut.io.inputY.poke(0.S)
+        
+        dut.clock.step(1)
+        dut.io.start.poke(false.B)
+        
+        // Wait for completion
+        var timeout = 0
+        while (!dut.io.done.peek().litToBoolean && timeout < 50) {
+          dut.clock.step(1)
+          timeout += 1
+        }
+        
+        // Check completion
+        dut.io.done.expect(true.B)
+        
+        // Get results
+        val hwCos = cleanNearZero(dut.io.cosOut.peek().litValue)
+        val hwSin = cleanNearZero(dut.io.sinOut.peek().litValue)
+        
+        // Calculate magnitude of the output vector
+        val hwCosDouble = fixedToDouble(hwCos)
+        val hwSinDouble = fixedToDouble(hwSin)
+        val magnitude = Math.sqrt(hwCosDouble*hwCosDouble + hwSinDouble*hwSinDouble)
+        
+        println(s"Hardware cos=$hwCosDouble, sin=$hwSinDouble")
+        println(s"Calculated magnitude=$magnitude (should be close to CORDIC_K=${CordicSimplifiedConstants.CORDIC_K_DBL})")
+        
+        // Without correction, magnitude should be close to CORDIC_K
+        assert(Math.abs(magnitude - 1/CordicSimplifiedConstants.CORDIC_K_DBL) < 0.04, 
+          s"Magnitude without correction should be close to CORDIC_K, got $magnitude")
+        
+        dut.clock.step(2)
+      }
+    }
+  }
 }
