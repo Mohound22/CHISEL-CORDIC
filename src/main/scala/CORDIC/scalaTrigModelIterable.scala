@@ -33,16 +33,22 @@ object CordicModelConstants {
     }
   }
 
-  // New enum for CORDIC modes
+  // Enum for CORDIC modes
   object Mode extends Enumeration {
     type Mode = Value
     val SinCos, ArctanMagnitude = Value
   }
 
-  // New enum for Hyperbolic CORDIC modes
+  // Enum for Hyperbolic CORDIC modes
   object ModeHyper extends Enumeration {
     type ModeHyper = Value
     val SinhCosh, AtanhMagnitudeHyper = Value
+  }
+  
+  // New enum for Linear CORDIC modes
+  object ModeLinear extends Enumeration {
+    type ModeLinear = Value
+    val Multiply, Divide = Value
   }
 
   def getHyperbolicShiftExponents(cycleCount: Int): Seq[Int] = { //WORKS
