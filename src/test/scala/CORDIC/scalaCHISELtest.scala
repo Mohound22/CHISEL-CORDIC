@@ -535,9 +535,9 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         val modelCosh = cleanNearZero(model.cosh)
         val modelSinh = cleanNearZero(model.sinh)
         
-        println(s"DUT: cosh=${fixedToDouble(hwCosh)} ($hwCosh), sinh=${fixedToDouble(hwSinh)} ($hwSinh)")
-        println(s"MOD: cosh=${fixedToDouble(modelCosh)} ($modelCosh), sinh=${fixedToDouble(modelSinh)} ($modelSinh)")
-        println(s"EXP: cosh=${cosh(theta)}, sinh=${sinh(theta)}")
+        //println(s"DUT: cosh=${fixedToDouble(hwCosh)} ($hwCosh), sinh=${fixedToDouble(hwSinh)} ($hwSinh)")
+        //println(s"MOD: cosh=${fixedToDouble(modelCosh)} ($modelCosh), sinh=${fixedToDouble(modelSinh)} ($modelSinh)")
+        //println(s"EXP: cosh=${cosh(theta)}, sinh=${sinh(theta)}")
 
         assert(hwCosh == modelCosh, s"Cosh mismatch (corr ON): HW=$hwCosh, Model=$modelCosh for theta=$theta")
         assert(hwSinh == modelSinh, s"Sinh mismatch (corr ON): HW=$hwSinh, Model=$modelSinh for theta=$theta")
@@ -596,9 +596,9 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         val modelCosh = cleanNearZero(model.cosh) // Model output should also be K_h * cosh(theta)
         val modelSinh = cleanNearZero(model.sinh) // Model output should also be K_h * sinh(theta)
 
-        println(s"DUT: cosh=${fixedToDouble(hwCosh)} ($hwCosh), sinh=${fixedToDouble(hwSinh)} ($hwSinh)")
-        println(s"MOD: cosh=${fixedToDouble(modelCosh)} ($modelCosh), sinh=${fixedToDouble(modelSinh)} ($modelSinh)")
-        println(s"EXP (scaled): cosh=${K_h_dut * cosh(theta)}, sinh=${K_h_dut * sinh(theta)}")
+        //println(s"DUT: cosh=${fixedToDouble(hwCosh)} ($hwCosh), sinh=${fixedToDouble(hwSinh)} ($hwSinh)")
+        //println(s"MOD: cosh=${fixedToDouble(modelCosh)} ($modelCosh), sinh=${fixedToDouble(modelSinh)} ($modelSinh)")
+        //println(s"EXP (scaled): cosh=${K_h_dut * cosh(theta)}, sinh=${K_h_dut * sinh(theta)}")
 
         assert(hwCosh == modelCosh, s"Cosh mismatch (corr OFF): HW=$hwCosh, Model=$modelCosh for theta=$theta")
         assert(hwSinh == modelSinh, s"Sinh mismatch (corr OFF): HW=$hwSinh, Model=$modelSinh for theta=$theta")
@@ -632,7 +632,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       )
       
       for ((x, y) <- testCoords) {
-        println(s"\n=== Testing Atanh/Magnitude for (x,y): ($x, $y) (Correction ON) ===")
+        //println(s"\n=== Testing Atanh/Magnitude for (x,y): ($x, $y) (Correction ON) ===")
         require(x > 0, "x must be positive for these tests")
         require(abs(y/x) < 1.0, "abs(y/x) must be less than 1 for atanh")
         require(abs(y/x) <= 0.8069, "abs(y/x) must be <= 0.8069 for model convergence") // Check model limit
@@ -671,12 +671,12 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         val modelAtanh = cleanNearZero(model.atanh)
         val modelMagnitude = cleanNearZero(model.magnitudeHyper)
         
-        println(s"DUT: atanh=${fixedToDouble(hwAtanh)} ($hwAtanh), mag=${fixedToDouble(hwMagnitude)} ($hwMagnitude)")
-        println(s"MOD: atanh=${fixedToDouble(modelAtanh)} ($modelAtanh), mag=${fixedToDouble(modelMagnitude)} ($modelMagnitude)")
-        println(s"EXP: atanh=${atanh(y/x)}, mag=${sqrt(x*x - y*y)}")
+        //println(s"DUT: atanh=${fixedToDouble(hwAtanh)} ($hwAtanh), mag=${fixedToDouble(hwMagnitude)} ($hwMagnitude)")
+        //println(s"MOD: atanh=${fixedToDouble(modelAtanh)} ($modelAtanh), mag=${fixedToDouble(modelMagnitude)} ($modelMagnitude)")
+        //println(s"EXP: atanh=${atanh(y/x)}, mag=${sqrt(x*x - y*y)}")
 
-        println(s"Atanh mismatch (corr ON): HW=$hwAtanh, Model=$modelAtanh for (x,y)=($x,$y)")
-        println(s"Magnitude mismatch (corr ON): HW=$hwMagnitude, Model=$modelMagnitude for (x,y)=($x,$y)")
+        //println(s"Atanh mismatch (corr ON): HW=$hwAtanh, Model=$modelAtanh for (x,y)=($x,$y)")
+        //println(s"Magnitude mismatch (corr ON): HW=$hwMagnitude, Model=$modelMagnitude for (x,y)=($x,$y)")
         assert(hwAtanh == modelAtanh, s"Atanh mismatch (corr ON): HW=$hwAtanh, Model=$modelAtanh for (x,y)=($x,$y)")
         assert(hwMagnitude == modelMagnitude, s"Magnitude mismatch (corr ON): HW=$hwMagnitude, Model=$modelMagnitude for (x,y)=($x,$y)")
         

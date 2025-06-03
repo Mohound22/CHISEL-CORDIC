@@ -169,7 +169,7 @@ class LinearCordicModel(width: Int, cycleCount: Int, integerBits: Int) {
         y = y_new
         z = z_new
 
-        println(s"[Busy] Iter $iter. x=${fixedToDouble(x)}, y=${fixedToDouble(y)}, z=${fixedToDouble(z)} (fixed: x=$x, y=$y, z=$z)")
+        //println(s"[Busy] Iter $iter. x=${fixedToDouble(x)}, y=${fixedToDouble(y)}, z=${fixedToDouble(z)} (fixed: x=$x, y=$y, z=$z)")
         
         iter += 1
         

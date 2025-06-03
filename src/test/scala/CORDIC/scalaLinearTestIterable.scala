@@ -48,7 +48,7 @@ class LinearCordicModelTest extends AnyFlatSpec with Matchers {
       safetyCounter += 1
     }
     if (!model.done) {
-        println(s"Warning: Model did not reach 'done' state for mode $mode, A=$inputA, B=$inputB after $safetyCounter steps.")
+        //println(s"Warning: Model did not reach 'done' state for mode $mode, A=$inputA, B=$inputB after $safetyCounter steps.")
     }
   }
 
