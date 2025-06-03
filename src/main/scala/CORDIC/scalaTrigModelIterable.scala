@@ -1,13 +1,14 @@
 package CORDIC
 
-import scala.math.{atan, pow, round}
+import scala.math.{atan, pow, round, log}
 
 object CordicModelConstants {
-  val CORDIC_K: Double = 0.6072529350088813 // CORDIC gain
+  val TRIG_CORDIC_K: Double = 0.6072529350088813 // CORDIC gain
+
 
   def atanh(x: Double): Double = { // Scala.math does not have atanh, so we define it here
     require(x > -1.0 && x < 1.0, "atanh(x) is only defined for -1 < x < 1")
-    0.5 * scala.math.log((1.0 + x)/(1.0 - x))
+    0.5 * log((1.0 + x) / (1.0 - x))
   }
 
   def doubleToFixed(x: Double, fractionalBits: Int, width: Int): BigInt = {
@@ -25,9 +26,9 @@ object CordicModelConstants {
     }
   }
 
-  def getAtanHyperLUT(fractionalBits: Int, width: Int, numEntries: Int): Seq[BigInt] = {
-    (0 until numEntries).map { i =>
-      val angle = atanh(pow(2.0, -i)) // Changed to hyperbolic arctangent
+  def getAtanHyperLUT(fractionalBits: Int, width: Int, shiftExponents: Seq[Int]): Seq[BigInt] = {
+    shiftExponents.map { exp =>
+      val angle = atanh(pow(2.0, -exp))
       doubleToFixed(angle, fractionalBits, width)
     }
   }
@@ -37,6 +38,47 @@ object CordicModelConstants {
     type Mode = Value
     val SinCos, ArctanMagnitude = Value
   }
+
+  // New enum for Hyperbolic CORDIC modes
+  object ModeHyper extends Enumeration {
+    type ModeHyper = Value
+    val SinhCosh, AtanhMagnitudeHyper = Value
+  }
+
+  def getHyperbolicShiftExponents(cycleCount: Int): Seq[Int] = { //WORKS
+    var exponents = scala.collection.mutable.ArrayBuffer[Int]()
+    var i = 0
+    var k = 1
+    var nextRepeat = 4 // First repeat occurs at k=4
+    
+    
+    while (i < cycleCount) {
+      exponents += k
+      i += 1
+      
+      if (k == nextRepeat && i < cycleCount) {
+        exponents += k
+        i += 1
+        nextRepeat = nextRepeat * 3 + 1
+      }
+      
+      k += 1
+    }
+    
+    //println(s"Final sequence of ${exponents.length} exponents: ${exponents.mkString(", ")}\n")
+    exponents.toSeq
+  }
+
+  // Calculates K_h = Product_i sqrt(1 - 2^(-2*s_i))
+  def calculateHyperbolicGainFactor(shiftExponents: Seq[Int]): Double = { //WORKS
+    var product = 1.0
+    for (exp <- shiftExponents) {
+      val term = pow(2.0, -exp)
+      product *= scala.math.sqrt(1.0 - term * term)
+    }
+    //println(s"K_h: $product")
+    product // This is K_h
+  }
 }
 
 class TrigCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeCorrection: Boolean = true) {
@@ -44,9 +86,9 @@ class TrigCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeCo
   import CordicModelConstants.Mode._
 
   private val fractionalBits = width - 1 - integerBits
-  private val K = doubleToFixed(CORDIC_K, fractionalBits, width)
+  private val K = doubleToFixed(TRIG_CORDIC_K, fractionalBits, width)
   private val X_INIT = if (magnitudeCorrection) {
-    doubleToFixed(CORDIC_K, fractionalBits, width)
+    doubleToFixed(TRIG_CORDIC_K, fractionalBits, width)
   } else {
     doubleToFixed(1.0, fractionalBits, width)
   }

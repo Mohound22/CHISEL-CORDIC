@@ -53,10 +53,10 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
     val halfInFixed = doubleToFixed(0.5)
     val quarterInFixed = doubleToFixed(0.25)
     
-    println(s"Fixed-point scaling verification:")
-    println(s"1.0 -> $oneInFixed (should be ${1 << fractionalBits})")
-    println(s"0.5 -> $halfInFixed (should be ${1 << (fractionalBits-1)})")
-    println(s"0.25 -> $quarterInFixed (should be ${1 << (fractionalBits-2)})")
+    //println(s"Fixed-point scaling verification:")
+    //println(s"1.0 -> $oneInFixed (should be ${1 << fractionalBits})")
+    //println(s"0.5 -> $halfInFixed (should be ${1 << (fractionalBits-1)})")
+    //println(s"0.25 -> $quarterInFixed (should be ${1 << (fractionalBits-2)})")
     
     assert(oneInFixed == (1 << fractionalBits), "1.0 scaling incorrect")
     assert(halfInFixed == (1 << (fractionalBits-1)), "0.5 scaling incorrect")
@@ -91,7 +91,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       val testAngles = Seq(0.0, Pi/6, Pi/4, Pi/3, Pi/2)
       
       for (angle <- testAngles) {
-        println(s"\n=== Testing Sin/Cos for angle: $angle radians ===")
+        //println(s"\n=== Testing Sin/Cos for angle: $angle radians ===")
         
         val angleFixed = doubleToFixed(angle)
         
@@ -136,9 +136,9 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         val modelCos = cleanNearZero(model.cos)
         val modelSin = cleanNearZero(model.sin)
         
-        println(s"Hardware: cos=$hwCos (${fixedToDouble(hwCos)}), sin=$hwSin (${fixedToDouble(hwSin)})")
-        println(s"Model:    cos=$modelCos (${fixedToDouble(modelCos)}), sin=$modelSin (${fixedToDouble(modelSin)})")
-        println(s"Expected: cos=${cos(angle)}, sin=${sin(angle)}")
+        //println(s"Hardware: cos=$hwCos (${fixedToDouble(hwCos)}), sin=$hwSin (${fixedToDouble(hwSin)})")
+        //println(s"Model:    cos=$modelCos (${fixedToDouble(modelCos)}), sin=$modelSin (${fixedToDouble(modelSin)})")
+        //println(s"Expected: cos=${cos(angle)}, sin=${sin(angle)}")
         
         // Compare hardware vs model (should be very close)
         assert(hwCos == modelCos, s"Cosine mismatch: HW=$hwCos, Model=$modelCos")
@@ -174,7 +174,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       )
       
       for ((x, y) <- testCoords) {
-        println(s"\n=== Testing Arctan/Magnitude for coordinates: ($x, $y) ===")
+        //println(s"\n=== Testing Arctan/Magnitude for coordinates: ($x, $y) ===")
         
         val xFixed = doubleToFixed(x)
         val yFixed = doubleToFixed(y)
@@ -220,9 +220,9 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         val modelArctan = cleanNearZero(model.arctan)
         val modelMagnitude = cleanNearZero(model.magnitude)
         
-        println(s"Hardware: arctan=$hwArctan (${fixedToDouble(hwArctan)}), magnitude=$hwMagnitude (${fixedToDouble(hwMagnitude)})")
-        println(s"Model:    arctan=$modelArctan (${fixedToDouble(modelArctan)}), magnitude=$modelMagnitude (${fixedToDouble(modelMagnitude)})")
-        println(s"Expected: arctan=${atan(y/x)}, magnitude=${Math.sqrt(x*x + y*y)}")
+        //println(s"Hardware: arctan=$hwArctan (${fixedToDouble(hwArctan)}), magnitude=$hwMagnitude (${fixedToDouble(hwMagnitude)})")
+        //println(s"Model:    arctan=$modelArctan (${fixedToDouble(modelArctan)}), magnitude=$modelMagnitude (${fixedToDouble(modelMagnitude)})")
+        //println(s"Expected: arctan=${atan(y/x)}, magnitude=${Math.sqrt(x*x + y*y)}")
         
         // Compare hardware vs model (should be identical)
         assert(hwArctan == modelArctan, s"Arctan mismatch: HW=$hwArctan, Model=$modelArctan")
@@ -255,7 +255,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       )
       
       for ((opType, param1, param2, param3) <- operations) {
-        println(s"\n=== Sequential test: $opType ===")
+        //println(s"\n=== Sequential test: $opType ===")
         
         val isArctanMag = opType == "arctanmag"
         
@@ -316,10 +316,10 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
           val modelArctan = cleanNearZero(model.arctan)
           val modelMagnitude = cleanNearZero(model.magnitude)
           
-          println(s"Sequential Arctan/Magnitude Results:")
-          println(s"  Hardware: arctan=$hwArctan (${fixedToDouble(hwArctan)}), magnitude=$hwMagnitude (${fixedToDouble(hwMagnitude)})")
-          println(s"  Model:    arctan=$modelArctan (${fixedToDouble(modelArctan)}), magnitude=$modelMagnitude (${fixedToDouble(modelMagnitude)})")
-          println(s"  Expected: arctan=${atan(param3/param2)}, magnitude=${Math.sqrt(param2*param2 + param3*param3)}")
+          //println(s"Sequential Arctan/Magnitude Results:")
+          //println(s"  Hardware: arctan=$hwArctan (${fixedToDouble(hwArctan)}), magnitude=$hwMagnitude (${fixedToDouble(hwMagnitude)})")
+          //println(s"  Model:    arctan=$modelArctan (${fixedToDouble(modelArctan)}), magnitude=$modelMagnitude (${fixedToDouble(modelMagnitude)})")
+          //println(s"  Expected: arctan=${atan(param3/param2)}, magnitude=${Math.sqrt(param2*param2 + param3*param3)}")
           
           assert(hwArctan == modelArctan, s"Arctan sequential mismatch: HW=$hwArctan, Model=$modelArctan")
           assert(hwMagnitude == modelMagnitude, s"Magnitude sequential mismatch: HW=$hwMagnitude, Model=$modelMagnitude")
@@ -329,10 +329,10 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
           val modelCos = cleanNearZero(model.cos)
           val modelSin = cleanNearZero(model.sin)
           
-          println(s"Sequential Sin/Cos Results:")
-          println(s"  Hardware: cos=$hwCos (${fixedToDouble(hwCos)}), sin=$hwSin (${fixedToDouble(hwSin)})")
-          println(s"  Model:    cos=$modelCos (${fixedToDouble(modelCos)}), sin=$modelSin (${fixedToDouble(modelSin)})")
-          println(s"  Expected: cos=${cos(param1)}, sin=${sin(param1)}")
+          //println(s"Sequential Sin/Cos Results:")
+          //println(s"  Hardware: cos=$hwCos (${fixedToDouble(hwCos)}), sin=$hwSin (${fixedToDouble(hwSin)})")
+          //println(s"  Model:    cos=$modelCos (${fixedToDouble(modelCos)}), sin=$modelSin (${fixedToDouble(modelSin)})")
+          //println(s"  Expected: cos=${cos(param1)}, sin=${sin(param1)}")
           
           assert(hwCos == modelCos && hwSin == modelSin, 
             s"Sin/Cos sequential mismatch: HW=($hwCos,$hwSin), Model=($modelCos,$modelSin)")
@@ -352,7 +352,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       val testAngles = Seq(Pi/4, Pi/6, Pi/3)
       
       for (angle <- testAngles) {
-        println(s"\n=== Testing magnitude correction for angle: $angle radians ===")
+        //println(s"\n=== Testing magnitude correction for angle: $angle radians ===")
         
         val angleFixed = doubleToFixed(angle)
         
@@ -385,8 +385,8 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         val hwSinDouble = fixedToDouble(hwSin)
         val magnitude = Math.sqrt(hwCosDouble*hwCosDouble + hwSinDouble*hwSinDouble)
         
-        println(s"Hardware cos=$hwCosDouble, sin=$hwSinDouble")
-        println(s"Calculated magnitude=$magnitude (should be close to 1.0)")
+        //println(s"Hardware cos=$hwCosDouble, sin=$hwSinDouble")
+        //println(s"Calculated magnitude=$magnitude (should be close to 1.0)")
         
         // With correction enabled, magnitude should be very close to 1.0
         assert(Math.abs(magnitude - 1.0) < 0.03, 
@@ -406,7 +406,7 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       val testAngles = Seq(Pi/4, Pi/6, Pi/3)
       
       for (angle <- testAngles) {
-        println(s"\n=== Testing uncorrected magnitude for angle: $angle radians ===")
+        //println(s"\n=== Testing uncorrected magnitude for angle: $angle radians ===")
         
         val angleFixed = doubleToFixed(angle)
         
@@ -439,12 +439,12 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         val hwSinDouble = fixedToDouble(hwSin)
         val magnitude = Math.sqrt(hwCosDouble*hwCosDouble + hwSinDouble*hwSinDouble)
         
-        println(s"Hardware cos=$hwCosDouble, sin=$hwSinDouble")
-        println(s"Calculated magnitude=$magnitude (should be close to CORDIC_K=${CordicSimplifiedConstants.CORDIC_K_DBL})")
+        //println(s"Hardware cos=$hwCosDouble, sin=$hwSinDouble")
+        //println(s"Calculated magnitude=$magnitude (should be close to TRIG_CORDIC_K=${CordicSimplifiedConstants.TRIG_CORDIC_K_DBL})")
         
-        // Without correction, magnitude should be close to CORDIC_K
-        assert(Math.abs(magnitude - 1/CordicSimplifiedConstants.CORDIC_K_DBL) < 0.04, 
-          s"Magnitude without correction should be close to CORDIC_K, got $magnitude")
+        // Without correction, magnitude should be close to TRIG_CORDIC_K
+        assert(Math.abs(magnitude - 1/CordicSimplifiedConstants.TRIG_CORDIC_K_DBL) < 0.04, 
+          s"Magnitude without correction should be close to TRIG_CORDIC_K, got $magnitude")
         
         dut.clock.step(2)
       }

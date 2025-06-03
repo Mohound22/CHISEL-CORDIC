@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 
 object CordicSimplifiedConstants {
-  val CORDIC_K_DBL: Double = 0.6072529350088813 // Gain of CORDIC rotation/vectoring
+  val TRIG_CORDIC_K_DBL: Double = 0.6072529350088813 // Gain of CORDIC rotation/vectoring
 
   /* Converts a Double to a BigInt representing a fixed-point number */
   def doubleToFixed(x: Double, fractionalBits: Int, width: Int): BigInt = {
@@ -57,7 +57,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
   })
 
   // --- Fixed-point constants for CORDIC calculations ---
-  val K_fixed = CordicSimplifiedConstants.doubleToFixed(CordicSimplifiedConstants.CORDIC_K_DBL, fractionalBits, width).S(width.W)
+  val K_fixed = CordicSimplifiedConstants.doubleToFixed(CordicSimplifiedConstants.TRIG_CORDIC_K_DBL, fractionalBits, width).S(width.W)
 
   val X_INIT_SINCOS_fixed = if (magnitudeCorrection) {
     K_fixed
@@ -93,7 +93,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
   // --- State Machine Logic ---
   switch(state) {
     is(s.idle) {
-                //printf("State: Idle\n")
+                ////printf("State: Idle\n")
       when(io.start) {
         currentMode := io.mode
         
@@ -114,7 +114,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
     is(s.busy) {
       // Perform iterations as long as iter_count < cycleCount
       when(iter_count < cycleCount.U) {
-                            //printf(p"$iter_count")
+                            ////printf(p"$iter_count")
         val current_i = iter_count // Current iteration index, used for shifts and LUT access
 
         val y_shifted = y_reg >> current_i
@@ -146,8 +146,8 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
     }
 
     is(s.done) {
-                //printf("State: Done\n")
-                //printf(p"Final results: cosOut = ${io.cosOut}, sinOut = ${io.sinOut}, arctanOut = ${io.arctanOut}\n")
+                ////printf("State: Done\n")
+                ////printf(p"Final results: cosOut = ${io.cosOut}, sinOut = ${io.sinOut}, arctanOut = ${io.arctanOut}\n")
 
       io.done := true.B
 

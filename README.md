@@ -1,4 +1,14 @@
+
+USE SOME SORT OF EXTENSION OF THE CORDIC ALGORITHM FOR HYPERBOLIC ABOVE 1.1181 theta
+
+
+
+
+
 # CORDIC Trigonometric Algorithm Implementation
+
+
+
 
 This repository contains implementations of the CORDIC (Coordinate Rotation Digital Computer) algorithm for trigonometric functions in both Scala (iterable model) and Chisel (hardware description). The implementation supports sine, cosine, and arctangent calculations with configurable fixed-point precision and iteration counts.
 
