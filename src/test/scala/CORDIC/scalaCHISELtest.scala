@@ -17,6 +17,11 @@ import CORDIC.HyperCordicConstants.{Mode => HyperMode} // Alias Chisel Hyperboli
 import CORDIC.{HyperCordicModel, CordicModelConstants} // Added HyperCordicModel
 import CORDIC.CordicModelConstants.{ModeHyper => ModelHyperMode} // Alias Scala Model Hyperbolic Mode
 
+// Import for Linear CORDIC Chisel Module and its constants
+import CORDIC.{LinearCordic, LinearCordicConstants, LinearCordicModel}
+import CORDIC.LinearCordicConstants.{Mode => ChiselLinearMode} // Alias for Chisel Linear Mode
+import CORDIC.CordicModelConstants.{ModeLinear => ModelLinearMode} // Alias for Scala Model Linear Mode
+
 class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
   
   // Test parameters
@@ -747,6 +752,188 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
         assert(compareFixed(expectedMagnitude, hwMagnitude, 0.05 * K_h_dut), s"Magnitude accuracy (corr OFF): EXP=${K_h_dut*sqrt(x*x-y*y)}, GOT=${fixedToDouble(hwMagnitude)} for (x,y)=($x,$y)")
         
         dut.clock.step(2)
+      }
+    }
+  }
+
+  // =====================================================================================
+  // Tests for LinearCordic Chisel Module
+  // =====================================================================================
+  behavior of "LinearCordic"
+
+  it should "initialize correctly in idle state" in {
+    test(new LinearCordic(width, cycleCount, integerBits)) { dut =>
+      // Check initial state
+      dut.io.done.expect(false.B)
+      dut.io.productResult.expect(0.S)
+      dut.io.quotientResult.expect(0.S)
+      
+      // Should remain idle without start signal
+      dut.clock.step(5)
+      dut.io.done.expect(false.B)
+    }
+  }
+
+  it should "perform multiplication correctly and match Scala model" in {
+    test(new LinearCordic(width, cycleCount, integerBits)) { dut =>
+      val model = new LinearCordicModel(width, cycleCount, integerBits)
+      
+      val testValues = Seq(
+        (1.0, 0.5, 0.5),    // Basic positive
+        (0.5, 1.0, 0.5),    // Order swapped
+        (2.0, 1.5, 3.0),    // Both > 1
+        (1.0, 3.0, 3.0),    // B requires scaling (3.0 > 1.99 limit)
+        (-1.0, 0.5, -0.5),   // A negative
+        (1.0, -0.5, -0.5),   // B negative
+        (-1.0, -0.5, 0.5),  // Both negative
+        (0.25, 0.25, 0.0625),// Small values
+        (1.0, -3.0, -3.0),  // B negative, requires scaling
+        (1.5, 1.9, 2.85),   // B close to limit
+        (1.9, 1.5, 2.85),   // A close to limit (doesn't matter for A)
+        (0.0, 5.0, 0.0),    // A is zero
+        (5.0, 0.0, 0.0)     // B is zero
+      )
+
+      for ((a_val, b_val, expected_prod) <- testValues) {
+        // println(s"\n=== Testing Linear Multiplication for A=$a_val, B=$b_val === Expect: $expected_prod")
+        
+        val aFixed = doubleToFixed(a_val)
+        val bFixed = doubleToFixed(b_val)
+        
+        model.reset()
+        model.setInputs(
+          start = true,
+          modeIn = ModelLinearMode.Multiply,
+          a = aFixed,
+          b = bFixed
+        )
+        while (!model.done) { model.step() }
+        
+        dut.io.start.poke(true.B)
+        dut.io.mode.poke(ChiselLinearMode.Multiply)
+        dut.io.inputA.poke(aFixed.S)
+        dut.io.inputB.poke(bFixed.S)
+        
+        dut.clock.step(1)
+        dut.io.start.poke(false.B)
+        
+        var timeout = 0
+        // Wait enough cycles for the CORDIC operation and a few more for state transitions
+        while (!dut.io.done.peek().litToBoolean && timeout < cycleCount + 10) {
+          dut.clock.step(1)
+          timeout += 1
+        }
+        dut.io.done.expect(true.B)
+        
+        val hwProduct = dut.io.productResult.peek().litValue
+        val modelProduct = model.product
+        
+        // println(s"HW Product: ${fixedToDouble(hwProduct)} ($hwProduct)")
+        // println(s"Model Product: ${fixedToDouble(modelProduct)} ($modelProduct)")
+        // println(s"Expected Double: $expected_prod")
+
+        assert(hwProduct == modelProduct, s"Product mismatch for A=$a_val, B=$b_val: HW=$hwProduct (${fixedToDouble(hwProduct)}), Model=$modelProduct (${fixedToDouble(modelProduct)})")
+        
+        val expectedFixed = doubleToFixed(expected_prod)
+        // Use a slightly more tolerant comparison for floating point issues in expected value if direct model check is main goal
+        assert(compareFixed(expectedFixed, hwProduct, 0.005), // Tolerance 0.5%
+          s"Product accuracy for A=$a_val, B=$b_val: Expected=${fixedToDouble(expectedFixed)} ($expected_prod), Got=${fixedToDouble(hwProduct)}")
+        
+        dut.clock.step(2) // Wait for DUT to return to idle
+      }
+    }
+  }
+
+  it should "perform division correctly and match Scala model" in {
+    test(new LinearCordic(width, cycleCount, integerBits)) { dut =>
+      val model = new LinearCordicModel(width, cycleCount, integerBits)
+      
+      val testValues = Seq(
+        (1.0, 2.0, 0.5),     // Basic positive
+        (3.0, 1.0, 3.0),     // A requires scaling
+        (1.0, 0.5, 2.0),     // A requires scaling (quotient can be > 1)
+        (-1.0, 2.0, -0.5),    // A negative
+        (1.0, -2.0, -0.5),    // B negative
+        (-1.0, -2.0, 0.5),   // Both negative
+        (0.7, 0.1, 7.0),     // A requires significant scaling, quotient large but representable
+        (0.0, 2.0, 0.0),     // A is zero
+        (2.0, 0.25, 8.0)     // Max quotient if integerBits=3 allows up to 8.0. Test this bound.
+                               // If integerBits=3 (signed), range is approx -8 to +7.999. So 8.0 would be an overflow.
+                               // Let's use a smaller quotient for this general test.
+      )
+      // Modify last test case for integerBits=3, max output is ~7.99.
+      // Example: (1.99 * 3.5) / 3.5 = 1.99. Let's try A=7.0, B=1.0. Q=7.0.
+      // A=7.0 fixed: 28672. B=1.0 fixed: 4096
+      // Limit for A_scaled_abs = (B_abs * R_fixed) >> frac = (4096 * 8151) >> 12 = 8151
+      // A_abs = 28672.
+      // k=0: 28672 > 8151
+      // k=1: 14336 > 8151
+      // k=2: 7168 <= 8151. So k=2.
+      // A_scaled = 7.0 / 4 = 1.75. z_target = 1.75. z << k = 1.75 * 4 = 7.0. Correct.
+
+      val divisionTestValues = Seq(
+        (1.0, 2.0, 0.5),
+        (3.0, 1.0, 3.0),
+        (1.0, 0.5, 2.0),
+        (-1.0, 2.0, -0.5),
+        (1.0, -2.0, -0.5),
+        (-1.0, -2.0, 0.5),
+        (0.7, 0.1, 7.0),
+        (0.0, 2.0, 0.0),
+        (7.5, 1.0, 7.5), // Quotient large, but within signed 3 integer bits range (-8 to +7.99..)
+        (1.0, 4.0, 0.25),
+        (0.1, 0.8, 0.125) // Small values
+      )
+
+      for ((a_val, b_val, expected_quot) <- divisionTestValues) {
+        // println(s"\n=== Testing Linear Division for A=$a_val, B=$b_val === Expect: $expected_quot")
+        
+        val aFixed = doubleToFixed(a_val)
+        val bFixed = doubleToFixed(b_val)
+        
+        // Skip division by zero for model, Chisel should handle or be protected by user
+        if (b_val == 0.0) {
+          // println("Skipping division by zero test case for model.")
+        } else {
+          model.reset()
+          model.setInputs(
+            start = true,
+            modeIn = ModelLinearMode.Divide,
+            a = aFixed,
+            b = bFixed
+          )
+          while (!model.done) { model.step() }
+          
+          dut.io.start.poke(true.B)
+          dut.io.mode.poke(ChiselLinearMode.Divide)
+          dut.io.inputA.poke(aFixed.S)
+          dut.io.inputB.poke(bFixed.S)
+          
+          dut.clock.step(1)
+          dut.io.start.poke(false.B)
+          
+          var timeout = 0
+          while (!dut.io.done.peek().litToBoolean && timeout < cycleCount + 10) {
+            dut.clock.step(1)
+            timeout += 1
+          }
+          dut.io.done.expect(true.B)
+          
+          val hwQuotient = dut.io.quotientResult.peek().litValue
+          val modelQuotient = model.quotient
+          
+          // println(s"HW Quotient: ${fixedToDouble(hwQuotient)} ($hwQuotient)")
+          // println(s"Model Quotient: ${fixedToDouble(modelQuotient)} ($modelQuotient)")
+          // println(s"Expected Double: $expected_quot")
+
+          assert(hwQuotient == modelQuotient, s"Quotient mismatch for A=$a_val, B=$b_val: HW=$hwQuotient (${fixedToDouble(hwQuotient)}), Model=$modelQuotient (${fixedToDouble(modelQuotient)})")
+          
+          val expectedFixed = doubleToFixed(expected_quot)
+          assert(compareFixed(expectedFixed, hwQuotient, 0.005), // Tolerance 0.5%
+            s"Quotient accuracy for A=$a_val, B=$b_val: Expected=${fixedToDouble(expectedFixed)} ($expected_quot), Got=${fixedToDouble(hwQuotient)}")
+          
+          dut.clock.step(2) // Wait for DUT to return to idle
+        }
       }
     }
   }
