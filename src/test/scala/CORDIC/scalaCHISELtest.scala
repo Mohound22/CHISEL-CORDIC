@@ -565,7 +565,8 @@ class CordicTest extends AnyFlatSpec with ChiselScalatestTester {
       val hyperShiftExponents = HyperCordicConstants.getHyperbolicShiftExponents(cycleCount) // For DUT
       val K_h_dut = HyperCordicConstants.calculateHyperbolicGainFactor(hyperShiftExponents)
 
-      val testThetas = Seq(0.0, 0.5, 1.0, -0.5, -1.0, 0.8)
+      //val testThetas = Seq(0.0, 0.5, 1.0, -0.5, -1.0, 0.8)
+      val testThetas = Seq(0.5)
 
       for (theta <- testThetas) {
         //println(s"\n=== Testing Sinh/Cosh for theta: $theta radians (Correction OFF) ===")

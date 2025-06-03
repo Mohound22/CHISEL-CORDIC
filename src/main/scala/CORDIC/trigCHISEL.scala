@@ -114,7 +114,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
     is(s.busy) {
       // Perform iterations as long as iter_count < cycleCount
       when(iter_count < cycleCount.U) {
-                            ////printf(p"$iter_count")
+        printf("Iteration %d:\n", iter_count)
         val current_i = iter_count // Current iteration index, used for shifts and LUT access
 
         val y_shifted = y_reg >> current_i
@@ -130,14 +130,17 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
           x_reg := x_reg + (direction * y_shifted) 
           y_reg := y_reg - (direction * x_shifted) 
           z_reg := z_reg + (direction * delta_theta) 
+          printf("  Vectoring Mode - After: x=%d, y=%d, z=%d\n", x_reg, y_reg, z_reg)
 
         }.otherwise { // Rotation mode (calculating Sin/Cos)
           val d_rot = Mux(z_reg >= 0.S, 1.S, -1.S)
           direction := d_rot // Assign to the common 'direction' wire
           
+
           x_reg := x_reg - (direction * y_shifted) // x_new = x_old - d*y_shifted
           y_reg := y_reg + (direction * x_shifted) // y_new = y_old + d*x_shifted
           z_reg := z_reg - (direction * delta_theta) // z_new = z_old - d*angle
+          printf("  Rotation Mode - After: x=%d, y=%d, z=%d\n", x_reg, y_reg, z_reg)
         }
         iter_count := iter_count + 1.U
       }.otherwise { 
