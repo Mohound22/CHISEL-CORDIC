@@ -17,8 +17,8 @@ object CordicSimplifiedConstants {
 
   def getAtanLUT(fractionalBits: Int, width: Int, numEntries: Int): Seq[SInt] = {
     (0 until numEntries).map { i =>
-      val angle_rad = math.atan(math.pow(2.0, -i))
-      doubleToFixed(angle_rad, fractionalBits, width).S(width.W)
+      val angleRad = math.atan(math.pow(2.0, -i))
+      doubleToFixed(angleRad, fractionalBits, width).S(width.W)
     }
   }
 
@@ -34,14 +34,14 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
   // Parameter Validations
   require(width > 0, "Width must be positive")
   require(cycleCount > 0, "Cycle count must be positive")
-  require(integerBits >= 1, "Integer bits must be at least 1 (for sign or small numbers)") // Allowing for values like 0.x or 1.x
+  require(integerBits >= 1, "Integer bits must be at least 1 for the sign bit.")
   val fractionalBits: Int = width - 1 - integerBits // 1 bit for sign
-  require(fractionalBits > 0, s"Fractional bits must be positive. Check width ($width) vs integerBits ($integerBits). FractionalBits = $fractionalBits")
+  require(fractionalBits > 0, s"Fractional bits must be positive. Check width ($width) vs integerBits ($integerBits).")
 
   val io = IO(new Bundle {
     // Control
     val start = Input(Bool())
-    val mode = Input(Mode())  // Changed from doArctan to mode enumeration
+    val mode = Input(Mode())
 
     // Data Inputs
     val targetTheta = Input(SInt(width.W)) 
@@ -53,7 +53,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
     val cosOut = Output(SInt(width.W))   
     val sinOut = Output(SInt(width.W))    
     val arctanOut = Output(SInt(width.W))
-    val magnitudeOut = Output(SInt(width.W)) // Added magnitude output
+    val magnitudeOut = Output(SInt(width.W))
   })
 
   // --- Fixed-point constants for CORDIC calculations ---
@@ -93,7 +93,6 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
   // --- State Machine Logic ---
   switch(state) {
     is(s.idle) {
-                ////printf("State: Idle\n")
       when(io.start) {
         currentMode := io.mode
         
@@ -114,7 +113,6 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
     is(s.busy) {
       // Perform iterations as long as iter_count < cycleCount
       when(iter_count < cycleCount.U) {
-        //printf("Iteration %d:\n", iter_count)
         val current_i = iter_count // Current iteration index, used for shifts and LUT access
 
         val y_shifted = y_reg >> current_i
@@ -129,18 +127,15 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
 
           x_reg := x_reg + (direction * y_shifted) 
           y_reg := y_reg - (direction * x_shifted) 
-          z_reg := z_reg + (direction * delta_theta) 
-          //printf("  Vectoring Mode - After: x=%d, y=%d, z=%d\n", x_reg, y_reg, z_reg)
+          z_reg := z_reg + (direction * delta_theta)
 
         }.otherwise { // Rotation mode (calculating Sin/Cos)
           val d_rot = Mux(z_reg >= 0.S, 1.S, -1.S)
           direction := d_rot // Assign to the common 'direction' wire
           
-
           x_reg := x_reg - (direction * y_shifted) // x_new = x_old - d*y_shifted
           y_reg := y_reg + (direction * x_shifted) // y_new = y_old + d*x_shifted
           z_reg := z_reg - (direction * delta_theta) // z_new = z_old - d*angle
-          //printf("  Rotation Mode - After: x=%d, y=%d, z=%d\n", x_reg, y_reg, z_reg)
         }
         iter_count := iter_count + 1.U
       }.otherwise { 
@@ -149,9 +144,6 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
     }
 
     is(s.done) {
-                ////printf("State: Done\n")
-                ////printf(p"Final results: cosOut = ${io.cosOut}, sinOut = ${io.sinOut}, arctanOut = ${io.arctanOut}\n")
-
       io.done := true.B
 
       when(currentMode === Mode.ArctanMagnitude) {
@@ -170,7 +162,7 @@ class CordicSimplified(val width: Int, val cycleCount: Int, val integerBits: Int
       }.otherwise {
         io.cosOut := x_reg
         io.sinOut := y_reg
-        io.arctanOut := z_reg
+        io.arctanOut := 0.S
         io.magnitudeOut := 0.S
       }
       

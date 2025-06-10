@@ -1,11 +1,22 @@
+error id: file://<WORKSPACE>/src/main/scala/CORDIC/hyperCHISEL.scala:
+file://<WORKSPACE>/src/main/scala/CORDIC/hyperCHISEL.scala
+empty definition using pc, found symbol in pc: 
+empty definition using semanticdb
+empty definition using fallback
+non-local guesses:
+
+offset: 2187
+uri: file://<WORKSPACE>/src/main/scala/CORDIC/hyperCHISEL.scala
+text:
+```scala
 package CORDIC
 
 import chisel3._
 import chisel3.util._
-import scala.math.{pow, sqrt, log}
+import scala.math.{pow, sqrt, log} // Corrected import
 
 object HyperCordicConstants {
-  // Converts a Double to a BigInt representing a fixed-point number
+  /* Converts a Double to a BigInt representing a fixed-point number */
   def doubleToFixed(x: Double, fractionalBits: Int, width: Int): BigInt = {
     val scaled = BigDecimal(x) * BigDecimal(BigInt(1) << fractionalBits)
     val rounded = scaled.setScale(0, BigDecimal.RoundingMode.HALF_UP).toBigInt
@@ -17,11 +28,12 @@ object HyperCordicConstants {
   // Generates sequence of shift exponents for hyperbolic CORDIC
   // Iterations k (1-indexed) = 4, 13, 40, ... are repeated.
   // The exponents themselves are k (e.g., 1, 2, 3, 4, 4, 5, ...)
-  def getHyperbolicShiftExponents(cycleCount: Int): Seq[Int] = {
+  def getHyperbolicShiftExponents(cycleCount: Int): Seq[Int] = { //WORKS
     var exponents = scala.collection.mutable.ArrayBuffer[Int]()
     var i = 0
     var k = 1
     var nextRepeat = 4 // First repeat occurs at k=4
+    
     
     while (i < cycleCount) {
       exponents += k
@@ -36,6 +48,7 @@ object HyperCordicConstants {
       k += 1
     }
     
+    //println(s"Final sequence of ${exponents.length} exponents: ${exponents.mkString(", ")}\n")
     exponents.toSeq
   }
 
@@ -50,8 +63,8 @@ object HyperCordicConstants {
   def getAtanHyperLUT(fractionalBits: Int, width: Int, hyperShiftExponents: Seq[Int]): Seq[SInt] = {
     hyperShiftExponents.map { exponent => // exponent is 1, 2, 3, 4, 4...
       val x = pow(2.0, -exponent)
-      val angleRad = 0.5 * log((1.0 + x) / (1.0 - x)) // Using log formula for atanh
-      doubleToFixed(angleRad, fractionalBits, width).S(width.W)
+      val angle_rad = 0.5 * log((1.0 + x) / (1.0 - x)) // Using log formula for atanh
+      doubleToFixed(angle_rad, fractionalBits, width).S(width.W)
     }
   }
 
@@ -61,15 +74,15 @@ object HyperCordicConstants {
   }
 }
 
-class HyperCordic(val width: Int, val cycleCount: Int, val integerBits: Int = 3, val magnitudeCorrection: Boolean = true) extends Module {
+class HyperCordic(val width: Int, v@@al cycleCount: Int, val integerBits: Int = 3, val magnitudeCorrection: Boolean = true) extends Module {
   import HyperCordicConstants.Mode
   
   // Parameter Validations
   require(width > 0, "Width must be positive")
   require(cycleCount > 0, "Cycle count must be positive")
-  require(integerBits >= 1, "Integer bits must be at least 1 for the sign bit.")
+  require(integerBits >= 1, "Integer bits must be at least 1 (for sign or small numbers)")
   val fractionalBits: Int = width - 1 - integerBits
-  require(fractionalBits > 0, s"Fractional bits must be positive. Check width ($width) vs integerBits ($integerBits).")
+  require(fractionalBits > 0, s"Fractional bits must be positive. Check width ($width) vs integerBits ($integerBits). FractionalBits = $fractionalBits")
 
   val io = IO(new Bundle {
     // Control
@@ -94,9 +107,12 @@ class HyperCordic(val width: Int, val cycleCount: Int, val integerBits: Int = 3,
 
   // --- Hyperbolic CORDIC specific constants ---
   val hyperShiftExponentsSeq: Seq[Int] = HyperCordicConstants.getHyperbolicShiftExponents(cycleCount)
+  // //println(s"Generated Hyperbolic Shift Exponents (0-indexed): ${hyperShiftExponentsSeq.mkString(", ")}")
 
   val K_H_TOTAL_ITER_GAIN_DBL: Double = HyperCordicConstants.calculateHyperbolicGainFactor(hyperShiftExponentsSeq)
-  
+  // //println(s"Total Hyperbolic Gain (K_H): $K_H_TOTAL_ITER_GAIN_DBL")
+  // //println(s"Inverse Total Hyperbolic Gain (1/K_H): ${1.0 / K_H_TOTAL_ITER_GAIN_DBL}")
+
   val INV_K_H_TOTAL_fixed = HyperCordicConstants.doubleToFixed(1.0 / K_H_TOTAL_ITER_GAIN_DBL, fractionalBits, width).S(width.W)
   val K_H_TOTAL_fixed = HyperCordicConstants.doubleToFixed(K_H_TOTAL_ITER_GAIN_DBL, fractionalBits, width).S(width.W) // Added direct K_H fixed
 
@@ -159,7 +175,7 @@ class HyperCordic(val width: Int, val cycleCount: Int, val integerBits: Int = 3,
         }.otherwise { // Sinh/Cosh or Exponential (both use rotation mode)
           x_reg := X_INIT_HYPER_fixed 
           y_reg := Y_INIT_HYPER_fixed
-          z_reg := io.targetTheta
+          z_reg := io.targetTheta     
         }
         iter_count := 0.U
         state := s.busy
@@ -186,13 +202,11 @@ class HyperCordic(val width: Int, val cycleCount: Int, val integerBits: Int = 3,
           y_reg := y_reg + (direction * x_shifted)
           z_reg := z_reg - (direction * delta_theta)
         }.otherwise { // Rotation mode (calculating Sinh/Cosh)
-          // d = if (z.signum == 0) -1 else z.signum
-          val z_sign = Mux(z_reg > 0.S, 1.S(2.W), Mux(z_reg < 0.S, -1.S(2.W), 0.S(2.W)))
-          direction := Mux(z_sign === 0.S, -1.S(2.W), z_sign)
+          direction := Mux(z_reg >= 0.S, 1.S, -1.S)
           
           x_reg := x_reg + (direction * y_shifted)
           y_reg := y_reg + (direction * x_shifted) 
-          z_reg := z_reg - (direction * delta_theta)
+          z_reg := z_reg - (direction * delta_theta) 
         }
         iter_count := iter_count + 1.U
       }.otherwise { 
@@ -204,7 +218,7 @@ class HyperCordic(val width: Int, val cycleCount: Int, val integerBits: Int = 3,
       io.done := true.B
 
       when(currentMode === Mode.AtanhMagnitudeHyper || currentMode === Mode.NaturalLog) {
-        val magnitude_uncorrected = x_reg // This is Mag_true * K_H
+        val magnitude_uncorrected = x_reg // This is Mag_true * K_H_effective
         
         if (magnitudeCorrection) {
           val magnitude_full_prod = magnitude_uncorrected * INV_K_H_TOTAL_fixed
@@ -229,7 +243,7 @@ class HyperCordic(val width: Int, val cycleCount: Int, val integerBits: Int = 3,
       }.otherwise { // SinhCosh or Exponential mode
         io.coshOut := x_reg 
         io.sinhOut := y_reg  
-        io.atanhOut := 0.S 
+        io.atanhOut := z_reg
         io.magnitudeResultHyper := 0.S 
         io.lnOut := 0.S
 
@@ -248,3 +262,10 @@ class HyperCordic(val width: Int, val cycleCount: Int, val integerBits: Int = 3,
 }
 
 
+
+```
+
+
+#### Short summary: 
+
+empty definition using pc, found symbol in pc: 

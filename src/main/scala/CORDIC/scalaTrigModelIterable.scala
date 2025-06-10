@@ -42,7 +42,7 @@ object CordicModelConstants {
   // Enum for Hyperbolic CORDIC modes
   object ModeHyper extends Enumeration {
     type ModeHyper = Value
-    val SinhCosh, AtanhMagnitudeHyper = Value
+    val SinhCosh, AtanhMagnitudeHyper, Exponential, NaturalLog = Value
   }
   
   // New enum for Linear CORDIC modes
@@ -51,7 +51,7 @@ object CordicModelConstants {
     val Multiply, Divide = Value
   }
 
-  def getHyperbolicShiftExponents(cycleCount: Int): Seq[Int] = { //WORKS
+  def getHyperbolicShiftExponents(cycleCount: Int): Seq[Int] = {
     var exponents = scala.collection.mutable.ArrayBuffer[Int]()
     var i = 0
     var k = 1
@@ -71,7 +71,6 @@ object CordicModelConstants {
       k += 1
     }
     
-    //println(s"Final sequence of ${exponents.length} exponents: ${exponents.mkString(", ")}\n")
     exponents.toSeq
   }
 

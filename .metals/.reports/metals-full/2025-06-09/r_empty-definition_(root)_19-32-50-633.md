@@ -1,18 +1,36 @@
+error id: file://<WORKSPACE>/src/main/scala/CORDIC/scalaHyperModelIterable.scala:
+file://<WORKSPACE>/src/main/scala/CORDIC/scalaHyperModelIterable.scala
+empty definition using pc, found symbol in pc: 
+empty definition using semanticdb
+empty definition using fallback
+non-local guesses:
+
+offset: 1303
+uri: file://<WORKSPACE>/src/main/scala/CORDIC/scalaHyperModelIterable.scala
+text:
+```scala
 package CORDIC
 
-import scala.math.pow
+import scala.math.{pow, round} // sinh, cosh, atanh are not directly used here but pow and round might be.
 
 class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeCorrection: Boolean = true) {
   import CordicModelConstants._
   import CordicModelConstants.ModeHyper._ // Use the new Hyperbolic Mode
 
+  // Print K_H_ACTUAL_GAIN_DOUBLE for debugging (can be removed later)
+  // //println(s"[HyperCordicModel Init] cycleCount: $cycleCount")
   private val fractionalBits = width - 1 - integerBits
   
   private val hyperShiftExponents = getHyperbolicShiftExponents(cycleCount)
+  // //println(s"[HyperCordicModel Init] hyperShiftExponents: ${hyperShiftExponents.mkString(",")}")
   private val actualIterations = hyperShiftExponents.length 
+  // //println(s"[HyperCordicModel Init] actualIterations: $actualIterations")
 
-  // K_H_TOTAL_ITER_GAIN_DOUBLE is the gain factor if all iterations are performed.
+  // This K_H_ACTUAL_GAIN_DOUBLE is the gain if all iterations complete with d!=0 for z (rotation) or y (vectoring)
+  // For vectoring, if y becomes 0 early, this full gain is not applicable to x.
   private val K_H_TOTAL_ITER_GAIN_DOUBLE = calculateHyperbolicGainFactor(hyperShiftExponents)
+  // //println(s"[HyperCordicModel Init] K_H_TOTAL_ITER_GAIN_DOUBLE: $K_H_TOTAL_ITER_GAIN_DOUBLE")
+  // //println(s"[HyperCordicModel Init] 1.0 / K_H_TOTAL_ITE@@R_GAIN_DOUBLE: ${1.0 / K_H_TOTAL_ITER_GAIN_DOUBLE}")
 
   private val X_INIT_HYPER = if (magnitudeCorrection) {
     doubleToFixed(1.0 / K_H_TOTAL_ITER_GAIN_DOUBLE, fractionalBits, width)
@@ -21,7 +39,7 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
   }
   private val Y_INIT_HYPER = BigInt(0)
   
-  private val atanHyperLUT = getAtanHyperLUT(fractionalBits, width, hyperShiftExponents)
+  private val atanHyperLUT_val = getAtanHyperLUT(fractionalBits, width, hyperShiftExponents)
 
   private object State extends Enumeration {
     type State = Value
@@ -45,9 +63,10 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
   private var sinhResult: BigInt = BigInt(0)
   private var atanhResult: BigInt = BigInt(0)
   private var magnitudeResultHyper: BigInt = BigInt(0)
-  private var expResult: BigInt = BigInt(0)
-  private var expNegResult: BigInt = BigInt(0)
-  private var lnResult: BigInt = BigInt(0)
+
+  private def debugFixedToDouble(fixedVal: BigInt, fBits: Int): Double = {
+    fixedVal.toDouble / (1L << fBits).toDouble
+  }
 
   def reset(): Unit = {
     state = Idle
@@ -66,9 +85,6 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
     sinhResult = BigInt(0)
     atanhResult = BigInt(0)
     magnitudeResultHyper = BigInt(0)
-    expResult = BigInt(0)
-    expNegResult = BigInt(0)
-    lnResult = BigInt(0)
   }
 
   def setInputs(
@@ -81,30 +97,14 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
     startFlag = start
     mode = modeIn
     targetTheta = theta
-    
-    if (mode == SinhCosh || mode == Exponential) {
-      require(theta <= doubleToFixed(1.1181, fractionalBits, width), "sinh/cosh only converges for theta <= 1.1181")
-      require(theta >= doubleToFixed(-1.1181, fractionalBits, width), "sinh/cosh only converges for theta >= -1.1181")
+    require(theta <= doubleToFixed(1.1181, fractionalBits, width), "sinh/cosh only converges for theta <= 1.1181")
+    require(theta >= doubleToFixed(-1.1181, fractionalBits, width), "sinh/cosh only converges for theta >= -1.1181")
+    if (xIn != 0) {
+      require(yIn/xIn <= doubleToFixed(0.8068, fractionalBits, width), "AtanhMagnitudeHyper only converges for yIn/xIn <= 0.8068")
+      require(yIn/xIn >= doubleToFixed(-0.8068, fractionalBits, width), "AtanhMagnitudeHyper only converges for yIn/xIn >= -0.8068")
     }
-    
-    if (mode == AtanhMagnitudeHyper && xIn != 0) {
-      val ratio = yIn.doubleValue / xIn.doubleValue
-      require(math.abs(ratio) <= 0.8068, s"AtanhMagnitudeHyper only converges for |yIn/xIn| <= 0.8068, got $ratio")
-    }
-
-    if (mode == NaturalLog) {
-      require(xIn > 0, "Natural logarithm is only defined for positive numbers")
-      // For ln(x), we need to compute atanh((x-1)/(x+1))
-      // We'll set up x and y for the atanh computation
-      val one = doubleToFixed(1.0, fractionalBits, width)
-      val xPlusOne = xIn + one
-      val xMinusOne = xIn - one
-      inputX = xPlusOne  // denominator
-      inputY = xMinusOne // numerator
-    } else {
-      inputX = xIn
-      inputY = yIn
-    }
+    inputX = xIn
+    inputY = yIn
   }
 
   def step(): Unit = {
@@ -113,7 +113,7 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
         doneFlag = false
         effectiveGainStages = 0 // Reset for the new operation
         if (startFlag) {
-          if (mode == AtanhMagnitudeHyper || mode == NaturalLog) {
+          if (mode == AtanhMagnitudeHyper) { // THIS ONLY CONVERGES FOR THETA = 1.1181
             x = inputX
             y = inputY
             z = BigInt(0)
@@ -128,21 +128,27 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
       
       case Busy if iter < actualIterations => 
         val currentShiftExponent = hyperShiftExponents(iter)
-        val d = if (mode == AtanhMagnitudeHyper || mode == NaturalLog) {
+        val d = if (mode == AtanhMagnitudeHyper) {
           if (y.signum == 0) -1 else -y.signum 
         } else { 
           if (z.signum == 0) -1 else z.signum   
         }
 
-        effectiveGainStages = iter + 1
+        if (d != 0) { // This iteration contributes to gain changes for x,y if d is non-zero
+            effectiveGainStages = iter + 1 
+        }
         
-        val xShifted = x >> currentShiftExponent
-        val yShifted = y >> currentShiftExponent
+        val x_prev = x 
+        val y_prev = y 
+        val z_prev = z 
+
+        val xShifted = x >> (currentShiftExponent) 
+        val yShifted = y >> (currentShiftExponent)
         
         val x_new = x + d * yShifted 
         val y_new = y + d * xShifted
         
-        val deltaZ_val = atanHyperLUT(iter)
+        val deltaZ_val = atanHyperLUT_val(iter)
         val deltaZ = d * deltaZ_val 
         val z_new = z - deltaZ 
 
@@ -157,38 +163,33 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
         }
       
       case Done =>
-        if (mode == AtanhMagnitudeHyper || mode == NaturalLog) {
+        if (mode == AtanhMagnitudeHyper) {
           atanhResult = z
           if (magnitudeCorrection){
             val exponentsForGain = hyperShiftExponents.take(effectiveGainStages)
+            //println(s"[Done State Correction] effectiveGainStages: $effectiveGainStages, using ${exponentsForGain.length} exponents for gain.")
+            
             val K_eff_gain_double = calculateHyperbolicGainFactor(exponentsForGain)
+            //println(s"[Done State Correction] K_eff_gain_double: $K_eff_gain_double")
+
             val inv_K_eff_double = if (K_eff_gain_double == 0.0 || K_eff_gain_double == 1.0) {
+                                     // If gain is 0 (error) or 1 (no scaling, e.g. 0 stages), inverse is 1.
                                      1.0 
                                    } else {
                                      1.0 / K_eff_gain_double
                                    }
+            //println(s"[Done State Correction] inv_K_eff_double: $inv_K_eff_double")
             val inv_K_eff_fixed = doubleToFixed(inv_K_eff_double, fractionalBits, width)
+            //println(s"[Done State Correction] x_final_iter_fixed: $x, inv_K_eff_fixed: $inv_K_eff_fixed")
+
             magnitudeResultHyper = clamp((x * inv_K_eff_fixed) >> fractionalBits)
+            //println(s"[Done State Correction] magnitudeResultHyper_fixed: $magnitudeResultHyper (${debugFixedToDouble(magnitudeResultHyper, fractionalBits)})")
           } else {
             magnitudeResultHyper = clamp(x)
-          }
-
-          if (mode == NaturalLog) {
-            // ln(x) = 2 * atanh((x-1)/(x+1))
-            // Shift left by 1 to multiply by 2
-            lnResult = clamp(atanhResult << 1)
           }
         } else { 
           coshResult = clamp(x)
           sinhResult = clamp(y)
-          
-          if (mode == Exponential) {
-            // e^x = cosh(x) + sinh(x)
-            expResult = clamp(coshResult + sinhResult)
-            // e^-x = cosh(x) - sinh(x)
-            expNegResult = clamp(coshResult - sinhResult)
-            
-          }
         }
         doneFlag = true
         state = Idle
@@ -208,7 +209,11 @@ class HyperCordicModel(width: Int, cycleCount: Int, integerBits: Int, magnitudeC
   def sinh: BigInt = sinhResult
   def atanh: BigInt = atanhResult
   def magnitudeHyper: BigInt = magnitudeResultHyper
-  def exp: BigInt = expResult
-  def expNeg: BigInt = expNegResult
-  def ln: BigInt = lnResult
 }
+
+```
+
+
+#### Short summary: 
+
+empty definition using pc, found symbol in pc: 
