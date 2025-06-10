@@ -18,6 +18,16 @@ The project is organized into three main implementation layers:
 
 ---
 
+## Development Process and Presentation
+
+For a more detailed walkthrough of the development process, the inner workings of the CORDIC algorithm, and a visual explanation of the project structure, please see the included presentation:
+
+-   [**FinalPresentation.pdf**](./FinalPresentation.pdf)
+
+This presentation covers the journey from theoretical concepts to the final unified hardware core, including the verification strategy and testing results.
+
+---
+
 ## The `CORDICcore` Unified Module
 
 `CORDICcore` is the main hardware module, designed for flexibility and efficiency. It acts as a CORDIC co-processor that can be controlled to perform a wide variety of mathematical functions. The core always includes the fundamental circular (trigonometric) functions (Sin/Cos, Arctan/Magnitude), while support for linear and hyperbolic functions can be optionally included at compile-time to optimize resource usage.
